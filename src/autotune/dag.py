@@ -440,6 +440,88 @@ class ExperimentDAG:
             if n.get("pareto_rank") is not None and n["pareto_rank"] <= 1
         ]
 
+    def pareto_front(self, layer: int = 0) -> list[DAGNode]:
+        """Get nodes at the specified Pareto rank layer.
+
+        Args:
+            layer: Pareto rank to select (default 0 = non-dominated front).
+
+        Returns:
+            List of DAGNodes at the given Pareto rank.
+        """
+        return [
+            self._node_to_dataclass(n)
+            for n in self._data["nodes"].values()
+            if n.get("pareto_rank") == layer
+        ]
+
+    def lineage(self, node_id: str) -> list[list[DAGNode]]:
+        """Get all root-to-node paths through the DAG.
+
+        Args:
+            node_id: Target node ID.
+
+        Returns:
+            List of paths, each path is a list of DAGNodes from root to target.
+        """
+        paths: list[list[DAGNode]] = []
+
+        def _trace(nid: str, current_path: list[str]) -> None:
+            node = self._data["nodes"].get(nid)
+            if not node:
+                return
+            current_path = [nid, *current_path]
+            parent_ids = node["parent_ids"]
+            if not parent_ids:
+                paths.append(
+                    [self._node_to_dataclass(self._data["nodes"][n]) for n in current_path]
+                )
+                return
+            for pid in parent_ids:
+                _trace(pid, current_path)
+
+        _trace(node_id, [])
+        return paths
+
+    def rank_proposals(self, n: int = 10, max_per_branch: int = 3) -> list[DAGNode]:
+        """Rank pending proposed nodes by parent potential.
+
+        Args:
+            n: Maximum number of proposals to return.
+            max_per_branch: Maximum proposals per parent node.
+
+        Returns:
+            Sorted list of proposed DAGNodes.
+        """
+        pending = [
+            nd
+            for nd in self._data["nodes"].values()
+            if nd["node_type"] == "proposed" and nd["status"] == "pending"
+        ]
+        parent_counts: dict[str, int] = {}
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for nd in pending:
+            parent_potential = max(
+                (
+                    self._data["nodes"].get(pid, {}).get("potential", 0.0)
+                    for pid in nd["parent_ids"]
+                ),
+                default=0.0,
+            )
+            scored.append((parent_potential, nd))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        result: list[DAGNode] = []
+        for _score, nd in scored:
+            if len(result) >= n:
+                break
+            parent_key = ",".join(nd["parent_ids"])
+            count = parent_counts.get(parent_key, 0)
+            if count >= max_per_branch:
+                continue
+            parent_counts[parent_key] = count + 1
+            result.append(self._node_to_dataclass(nd))
+        return result
+
     def all_executed(self) -> list[DAGNode]:
         """Get all successfully executed nodes (excludes oom/crash/timeout).
 
@@ -604,13 +686,13 @@ class ExperimentDAG:
         Returns:
             True if a dominates b.
         """
-        task_a = a.get("task_score") or 0.0
-        task_b = b.get("task_score") or 0.0
-        cost_a = a.get("cost") or float("inf")
-        cost_b = b.get("cost") or float("inf")
+        task_a = 0.0 if a.get("task_score") is None else a["task_score"]
+        task_b = 0.0 if b.get("task_score") is None else b["task_score"]
+        cost_a = float("inf") if a.get("cost") is None else a["cost"]
+        cost_b = float("inf") if b.get("cost") is None else b["cost"]
         if obj_count == 3:
-            ret_a = a.get("retention_score") or 0.0
-            ret_b = b.get("retention_score") or 0.0
+            ret_a = 0.0 if a.get("retention_score") is None else a["retention_score"]
+            ret_b = 0.0 if b.get("retention_score") is None else b["retention_score"]
             at_least_as_good = task_a >= task_b and ret_a >= ret_b and cost_a <= cost_b
             strictly_better = task_a > task_b or ret_a > ret_b or cost_a < cost_b
         else:
@@ -702,6 +784,8 @@ class ExperimentDAG:
                 else:
                     self.mark_failed(node_id, status)
                     logger.info("Reconciled %s: marked as %s", node_id, status)
+                archive_dir.mkdir(parents=True, exist_ok=True)
+                f.rename(archive_dir / f.name)
 
         # Reset stale running nodes not tracked by orchestrator
         for node in self._data["nodes"].values():

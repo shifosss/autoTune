@@ -528,3 +528,161 @@ class TestReconciliation:
         dag.reconcile(queue, running, completed, archive)
         node = dag.get_node("node_0002")
         assert node.status == "pending"
+
+    def test_reconcile_archives_completion_files(self, tmp_path):
+        dag = _make_dag(tmp_path)
+        dag.add_seed(
+            theta={},
+            description="base",
+            techniques=(),
+            composite=0.7,
+            task_score=0.7,
+            retention_score=0.9,
+            cost=1.0,
+        )
+        dag.add_proposed(
+            parent_ids=("node_0001",),
+            move_type="branch",
+            description="test",
+            techniques=("lr_increase",),
+            theta={"lr": 5e-4},
+        )
+        dag.mark_running("node_0002")
+        queue = tmp_path / "queue"
+        running = tmp_path / "running"
+        completed = tmp_path / "completed"
+        archive = tmp_path / "archive"
+        for d in (queue, running, completed, archive):
+            d.mkdir()
+        completion = {
+            "node_id": "node_0002",
+            "status": "completed",
+            "metrics": {"task_score": 0.85, "composite": 0.85, "cost": 1.2},
+        }
+        (completed / "node_0002.json").write_text(json.dumps(completion))
+        dag.reconcile(queue, running, completed, archive)
+        # Completion file should be moved to archive
+        assert not (completed / "node_0002.json").exists()
+        assert (archive / "node_0002.json").exists()
+
+
+class TestNewQueryMethods:
+    def test_pareto_front_returns_rank_0(self, tmp_path):
+        dag = _make_dag(tmp_path)
+        dag.add_seed(
+            theta={},
+            description="A",
+            techniques=(),
+            composite=0.9,
+            task_score=0.9,
+            retention_score=0.9,
+            cost=1.0,
+        )
+        dag.add_seed(
+            theta={},
+            description="B",
+            techniques=(),
+            composite=0.7,
+            task_score=0.7,
+            retention_score=0.7,
+            cost=2.0,
+        )
+        dag.add_seed(
+            theta={},
+            description="C",
+            techniques=(),
+            composite=0.5,
+            task_score=0.5,
+            retention_score=0.5,
+            cost=3.0,
+        )
+        dag.rerank_pareto()
+        front = dag.pareto_front(layer=0)
+        assert len(front) == 1
+        assert front[0].id == "node_0001"
+        layer1 = dag.pareto_front(layer=1)
+        assert len(layer1) == 1
+        assert layer1[0].id == "node_0002"
+
+    def test_lineage_single_path(self, tmp_path):
+        dag = _make_dag(tmp_path)
+        dag.add_seed(
+            theta={},
+            description="root",
+            techniques=(),
+            composite=0.7,
+            task_score=0.7,
+            retention_score=0.9,
+            cost=1.0,
+        )
+        dag.add_proposed(
+            parent_ids=("node_0001",),
+            move_type="branch",
+            description="child",
+            techniques=(),
+            theta={},
+        )
+        dag.mark_running("node_0002")
+        dag.promote("node_0002", {"task_score": 0.8, "composite": 0.8, "cost": 1.0})
+        dag.add_proposed(
+            parent_ids=("node_0002",),
+            move_type="branch",
+            description="grandchild",
+            techniques=(),
+            theta={},
+        )
+        paths = dag.lineage("node_0003")
+        assert len(paths) == 1
+        assert [n.id for n in paths[0]] == ["node_0001", "node_0002", "node_0003"]
+
+    def test_lineage_merge_multiple_paths(self, tmp_path):
+        dag = _make_dag(tmp_path)
+        dag.add_seed(
+            theta={},
+            description="A",
+            techniques=(),
+            composite=0.7,
+            task_score=0.7,
+            retention_score=0.9,
+            cost=1.0,
+        )
+        dag.add_seed(
+            theta={},
+            description="B",
+            techniques=(),
+            composite=0.8,
+            task_score=0.8,
+            retention_score=0.8,
+            cost=1.2,
+        )
+        dag.add_proposed(
+            parent_ids=("node_0001", "node_0002"),
+            move_type="merge",
+            description="merge",
+            techniques=(),
+            theta={},
+        )
+        paths = dag.lineage("node_0003")
+        assert len(paths) == 2  # one path through each parent
+
+    def test_rank_proposals(self, tmp_path):
+        dag = _make_dag(tmp_path)
+        dag.add_seed(
+            theta={},
+            description="base",
+            techniques=(),
+            composite=0.8,
+            task_score=0.8,
+            retention_score=0.9,
+            cost=1.0,
+        )
+        dag.recalculate_potential()
+        dag.add_proposed(
+            parent_ids=("node_0001",), move_type="branch", description="p1", techniques=(), theta={}
+        )
+        dag.add_proposed(
+            parent_ids=("node_0001",), move_type="branch", description="p2", techniques=(), theta={}
+        )
+        ranked = dag.rank_proposals(n=5)
+        assert len(ranked) == 2
+        assert ranked[0].status == "pending"
