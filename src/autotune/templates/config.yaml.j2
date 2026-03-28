@@ -1,0 +1,55 @@
+project:
+  name: "{{ project_name }}"
+  base_model: "{{ base_model | default('meta-llama/Llama-3-8B') }}"
+
+task:
+  type: "{{ task_type | default('instruction_tuning') }}"
+
+run:
+  script: "train.py"
+  checkpoint_format: "safetensors"
+
+retention:
+  enabled: false
+  script: null
+  probe_set: null
+
+parameters:
+  lr:
+    type: float
+    range: [1.0e-5, 1.0e-3]
+    log_scale: true
+  rank:
+    type: int
+    range: [4, 64]
+  alpha:
+    type: int
+    range: [8, 128]
+  dropout:
+    type: float
+    range: [0.0, 0.3]
+  warmup_ratio:
+    type: float
+    range: [0.0, 0.15]
+
+merge:
+  default_strategy: "weighted_avg"
+  custom_hook: null
+
+orchestrator:
+  poll_interval: 30
+  max_per_gpu: 2
+  safety_margin_gb: 2.0
+  default_timeout_hours: 8
+  checkpoint_retention_layers: 2
+
+scoring:
+  exploration_weight: 0.005
+  diversity_weight: 0.01
+  retention_cliff_threshold: -0.10
+
+files:
+  editable:
+    - "train.py"
+    - "configs/"
+  readonly: []

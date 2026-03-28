@@ -1,0 +1,16 @@
+# {{ project_name }} — autoTune Program
+
+## Objective
+Iteratively improve the finetuned model by exploring hyperparameter configurations,
+checkpoint branches, and merges. Use the manifold navigator for numerical guidance
+and your own judgment for strategic decisions.
+
+## Loop
+1. `autotune reconcile` — sync DAG with completed experiments
+2. `autotune explain` — read manifold summary and Pareto frontier
+3. `autotune suggest --n 5` — get move suggestions
+4. Decide: accept, modify, or override a suggestion
+5. Implement changes to training script / config
+6. `autotune propose` then `autotune submit`
+7. Update `learnings.md` with insights
+8. Wait for orchestrator, repeat
