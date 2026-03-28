@@ -1,5 +1,6 @@
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 from autotune.runner import ExperimentRunner
@@ -266,6 +267,56 @@ class TestMergeCheckpoints:
                 strategy="weighted_avg",
                 checkpoint_store=store,
                 dest_path=project_repo / "merged",
+            )
+
+
+class TestGraftCheckpoint:
+    """Tests for graft_checkpoint delta-transfer operation."""
+
+    def test_graft_applies_delta(self, project_repo, monkeypatch):
+        import types
+
+        import numpy as np
+
+        store = project_repo / "checkpoints"
+        store.mkdir()
+        for name in ("source", "source_parent", "target_parent"):
+            d = store / name
+            d.mkdir()
+            (d / "pytorch_model.bin").write_text("fake")
+
+        states = {
+            "source": {"w": np.array([5.0, 6.0])},
+            "source_parent": {"w": np.array([1.0, 2.0])},
+            "target_parent": {"w": np.array([10.0, 20.0])},
+        }
+        mock_torch = types.ModuleType("torch")
+        mock_torch.load = lambda path, **kw: states[Path(path).parent.name]
+        saved = {}
+        mock_torch.save = lambda obj, path: saved.update({"obj": obj})
+        monkeypatch.setitem(__import__("sys").modules, "torch", mock_torch)
+        monkeypatch.setitem(__import__("sys").modules, "safetensors", None)
+
+        runner = ExperimentRunner(project_repo)
+        runner.graft_checkpoint(
+            source_id="source",
+            source_parent_id="source_parent",
+            target_parent_id="target_parent",
+            checkpoint_store=store,
+            dest_path=project_repo / "grafted",
+        )
+        # delta = source - source_parent = [4, 4]
+        # grafted = target_parent + delta = [14, 24]
+        np.testing.assert_array_almost_equal(saved["obj"]["w"], [14.0, 24.0])
+
+    def test_graft_no_torch_raises(self, project_repo, monkeypatch):
+        monkeypatch.setitem(__import__("sys").modules, "torch", None)
+        monkeypatch.setitem(__import__("sys").modules, "safetensors", None)
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ImportError, match="torch"):
+            runner.graft_checkpoint(
+                source_id="s", source_parent_id="sp", target_parent_id="tp",
+                checkpoint_store=project_repo, dest_path=project_repo / "out",
             )
 
 

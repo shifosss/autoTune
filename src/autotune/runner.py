@@ -322,3 +322,43 @@ class ExperimentRunner:
             raise ValueError(f"Unknown merge strategy: {strategy}")
 
         logger.info("Merged checkpoints %s via %s -> %s", parent_ids, strategy, dest_path)
+
+    def graft_checkpoint(
+        self,
+        source_id: str,
+        source_parent_id: str,
+        target_parent_id: str,
+        checkpoint_store: Path,
+        dest_path: Path,
+    ) -> None:
+        """Apply a technique delta from one branch to another parent.
+
+        Computes delta = source - source_parent, then grafted = target_parent + delta.
+
+        Args:
+            source_id: ID of the experiment whose technique delta to apply.
+            source_parent_id: ID of the source's parent checkpoint.
+            target_parent_id: ID of the target parent checkpoint to apply the delta onto.
+            checkpoint_store: Root directory containing per-node checkpoint dirs.
+            dest_path: Where to write the grafted checkpoint.
+
+        Raises:
+            ImportError: If torch is not installed.
+        """
+        source = self._load_state_dict(checkpoint_store / source_id)
+        source_parent = self._load_state_dict(checkpoint_store / source_parent_id)
+        target_parent = self._load_state_dict(checkpoint_store / target_parent_id)
+
+        grafted = {}
+        for key in target_parent:
+            if key in source and key in source_parent:
+                delta = source[key] - source_parent[key]
+                grafted[key] = target_parent[key] + delta
+            else:
+                grafted[key] = target_parent[key]
+
+        self._save_state_dict(grafted, dest_path / "pytorch_model.bin", "pytorch")
+        logger.info(
+            "Grafted %s (delta from %s) onto %s -> %s",
+            source_id, source_parent_id, target_parent_id, dest_path,
+        )
