@@ -39,6 +39,7 @@ class ForgettingDetector:
         self,
         node: DAGNode,
         parents: tuple[DAGNode, ...],
+        step_size: float = 0.5,
     ) -> CliffReport | None:
         """Check whether a node represents a retention cliff relative to its parents.
 
@@ -52,6 +53,7 @@ class ForgettingDetector:
         Args:
             node: The executed node to evaluate.
             parents: All parent nodes of `node`.
+            step_size: Manifold step size of the direction taken (for danger zone radius).
 
         Returns:
             A CliffReport if a cliff is detected, or None if retention is
@@ -74,7 +76,7 @@ class ForgettingDetector:
         coords = node.manifold_coords or ()
         dz = DangerZone(
             center=coords,
-            radius=severity * 0.5,
+            radius=severity * step_size,
             cause_technique=(node.technique_tags[0] if node.technique_tags else "unknown"),
             severity=severity,
         )

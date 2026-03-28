@@ -234,7 +234,10 @@ class StrategyNavigator:
         w_e = meta.scoring.exploration_weight
         w_div = meta.scoring.diversity_weight
         total = max(meta.total_executed, 1)
-        exploration = w_e * math.sqrt(math.log(total) / 1)
+        merge_count = sum(
+            1 for c in self._dag.children(a.id) if c.move_type == "merge" and b.id in c.parent_ids
+        )
+        exploration = w_e * math.sqrt(math.log(total) / (1 + merge_count))
         complementarity = 1.0
         if (
             a.task_score is not None
