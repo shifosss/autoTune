@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import json,os,sys,subprocess; d=json.loads(os.environ.get('TOOL_INPUT','{}')); f=d.get('file_path',''); f and f.endswith('.py') and os.path.isfile(f) and (subprocess.run(['ruff','format','--quiet',f],capture_output=True), subprocess.run(['ruff','check','--fix','--quiet',f],capture_output=True))\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if echo \"$TOOL_INPUT\" | grep -q \"docs/specs/\"; then echo \"BLOCKED: Spec files are read-only during implementation. Discuss changes with user first.\"; exit 1; fi'"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "preferences": {
+    "teammateMode": "tmux"
+  }
+}
