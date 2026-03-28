@@ -105,6 +105,66 @@ class TestResultCollection:
         runner.cleanup_worktree(wt)
 
 
+class TestCheckpointIO:
+    """Tests for _load_state_dict and _save_state_dict helpers."""
+
+    def test_load_state_dict_torch_file(self, project_repo, monkeypatch):
+        """Load a .pt file via torch.load."""
+        import types
+
+        fake_state = {"layer.weight": [1.0, 2.0], "layer.bias": [0.1]}
+        mock_torch = types.ModuleType("torch")
+        mock_torch.load = lambda path, **kw: fake_state
+        monkeypatch.setitem(__import__("sys").modules, "torch", mock_torch)
+
+        runner = ExperimentRunner(project_repo)
+        pt_file = project_repo / "model.pt"
+        pt_file.write_text("fake")
+        result = runner._load_state_dict(pt_file)
+        assert result == fake_state
+
+    def test_load_state_dict_directory_finds_bin(self, project_repo, monkeypatch):
+        """Load from a HuggingFace-style directory."""
+        import types
+
+        fake_state = {"w": [1.0]}
+        mock_torch = types.ModuleType("torch")
+        mock_torch.load = lambda path, **kw: fake_state
+        monkeypatch.setitem(__import__("sys").modules, "torch", mock_torch)
+        # Remove safetensors if present
+        monkeypatch.setitem(__import__("sys").modules, "safetensors", None)
+
+        runner = ExperimentRunner(project_repo)
+        ckpt_dir = project_repo / "checkpoint"
+        ckpt_dir.mkdir()
+        (ckpt_dir / "pytorch_model.bin").write_text("fake")
+        result = runner._load_state_dict(ckpt_dir)
+        assert result == fake_state
+
+    def test_load_state_dict_no_torch_raises(self, project_repo, monkeypatch):
+        """ImportError if torch not installed."""
+        monkeypatch.setitem(__import__("sys").modules, "torch", None)
+        monkeypatch.setitem(__import__("sys").modules, "safetensors", None)
+
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ImportError, match="torch"):
+            runner._load_state_dict(project_repo / "model.pt")
+
+    def test_save_state_dict_pytorch(self, project_repo, monkeypatch):
+        """Save via torch.save."""
+        import types
+
+        saved = {}
+        mock_torch = types.ModuleType("torch")
+        mock_torch.save = lambda obj, path: saved.update({"obj": obj, "path": path})
+        monkeypatch.setitem(__import__("sys").modules, "torch", mock_torch)
+
+        runner = ExperimentRunner(project_repo)
+        out = project_repo / "out.pt"
+        runner._save_state_dict({"w": [1.0]}, out, "pytorch")
+        assert saved["obj"] == {"w": [1.0]}
+
+
 class TestCheckpointCollection:
     def test_collect_checkpoint(self, project_repo):
         runner = ExperimentRunner(project_repo)

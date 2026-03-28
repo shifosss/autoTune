@@ -194,3 +194,74 @@ class ExperimentRunner:
             capture_output=True,
         )
         logger.debug("Pruned stale worktrees in %s", self._root)
+
+    def _load_state_dict(self, path: Path) -> dict:
+        """Load a model state_dict from a file or directory.
+
+        Supports .pt, .bin, .safetensors files and HuggingFace directories.
+        Raises ImportError if neither torch nor safetensors is installed.
+
+        Args:
+            path: File path or directory containing the checkpoint.
+
+        Returns:
+            The loaded state dict.
+
+        Raises:
+            FileNotFoundError: If no checkpoint file found in the directory.
+            ImportError: If torch is not installed.
+        """
+        if path.is_dir():
+            candidates = [
+                "adapter_model.safetensors",
+                "pytorch_model.bin",
+                "model.safetensors",
+            ]
+            for name in candidates:
+                if (path / name).exists():
+                    return self._load_state_dict(path / name)
+            raise FileNotFoundError(f"No checkpoint file found in {path}")
+
+        # Try safetensors first
+        if path.suffix == ".safetensors":
+            try:
+                from safetensors.torch import load_file
+
+                return load_file(str(path))
+            except (ImportError, ModuleNotFoundError):
+                pass
+
+        # Fall back to torch
+        try:
+            import torch
+
+            return torch.load(str(path), weights_only=True)
+        except (ImportError, ModuleNotFoundError):
+            pass
+
+        raise ImportError(
+            "torch is required for checkpoint operations. "
+            "Install with: uv pip install -e '.[torch]'"
+        )
+
+    def _save_state_dict(self, state_dict: dict, path: Path, fmt: str) -> None:
+        """Save a state_dict to disk.
+
+        Args:
+            state_dict: The state dict to save.
+            path: Destination file path.
+            fmt: Format — "safetensors" or "pytorch".
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if fmt == "safetensors":
+            try:
+                from safetensors.torch import save_file
+
+                save_file(state_dict, str(path))
+                return
+            except (ImportError, ModuleNotFoundError):
+                pass
+
+        import torch
+
+        torch.save(state_dict, str(path))
