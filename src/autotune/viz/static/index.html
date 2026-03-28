@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>autoTune Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+
+  <!-- CDN: d3 v7 for 2D DAG layout -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+
+  <!-- CDN: three.js + spritetext for 3D DAG -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.167.1/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three-spritetext@1.9.0/dist/three-spritetext.min.js"></script>
+
+  <!-- CDN: 3d-force-graph -->
+  <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.73.0/dist/3d-force-graph.min.js"></script>
+
+  <!-- CDN: Plotly basic bundle for Pareto + Manifold charts -->
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-basic-dist@2.32.0/plotly-basic.min.js"></script>
+</head>
+<body>
+  <!-- ── Top stats bar ─────────────────────────────── -->
+  <header id="top-bar">
+    <div id="brand">
+      <span class="brand-dot">◉</span>
+      <span class="brand-name">autoTune</span>
+    </div>
+    <div id="stats-bar">
+      <span class="stat-item">
+        Executed: <strong id="stat-executed">—</strong>
+      </span>
+      <span class="stat-separator">·</span>
+      <span class="stat-item">
+        Proposed: <strong id="stat-proposed">—</strong>
+      </span>
+      <span class="stat-separator">·</span>
+      <span class="stat-item">
+        Best: <strong id="stat-best">—</strong>
+        <span id="stat-best-node" class="stat-node-id"></span>
+      </span>
+    </div>
+    <div id="connection-status">
+      <span id="conn-dot" class="conn-dot conn-disconnected"></span>
+      <span id="conn-label">Connecting…</span>
+      <span id="conn-age"></span>
+    </div>
+  </header>
+
+  <!-- ── Tab bar ───────────────────────────────────── -->
+  <nav id="tab-bar">
+    <button class="tab tab-active" data-tab="dag">DAG View</button>
+    <button class="tab" data-tab="pareto">Pareto</button>
+    <button class="tab" data-tab="manifold">Manifold</button>
+    <button class="tab" data-tab="leaderboard">Leaderboard</button>
+    <button class="tab" data-tab="techniques">Techniques</button>
+  </nav>
+
+  <!-- ── Content area ──────────────────────────────── -->
+  <main id="content-area">
+    <div id="view-dag"          class="view view-active"></div>
+    <div id="view-pareto"       class="view"></div>
+    <div id="view-manifold"     class="view"></div>
+    <div id="view-leaderboard"  class="view"></div>
+    <div id="view-techniques"   class="view"></div>
+  </main>
+
+  <!-- ── Detail panel (slides in from right) ───────── -->
+  <aside id="detail-panel">
+    <button id="detail-close" aria-label="Close detail panel">✕</button>
+    <div id="detail-content">
+      <div id="detail-composite" class="detail-composite">—</div>
+      <div id="detail-node-id" class="detail-node-id"></div>
+      <div id="detail-status-row" class="detail-status-row">
+        <span id="detail-status-badge" class="status-badge"></span>
+        <span id="detail-move-type" class="detail-move-type"></span>
+      </div>
+      <hr class="detail-divider" />
+      <div id="detail-metrics" class="detail-metrics">
+        <div class="metric-row">
+          <span class="metric-label">Task</span>
+          <span id="dm-task" class="metric-value">—</span>
+        </div>
+        <div class="metric-row" id="dm-retention-row">
+          <span class="metric-label">Retention</span>
+          <span id="dm-retention" class="metric-value">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Cost</span>
+          <span id="dm-cost" class="metric-value">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">P.Rank</span>
+          <span id="dm-prank" class="metric-value">—</span>
+        </div>
+      </div>
+      <hr class="detail-divider" />
+      <div id="detail-parents" class="detail-section">
+        <span class="detail-section-label">Parents:</span>
+        <span id="dm-parents"></span>
+      </div>
+      <div id="detail-depth" class="detail-section">
+        <span class="detail-section-label">Depth:</span>
+        <span id="dm-depth">—</span>
+      </div>
+      <hr class="detail-divider" />
+      <div id="detail-techniques" class="detail-section">
+        <span class="detail-section-label">Techniques:</span>
+        <div id="dm-techniques" class="tag-chips"></div>
+      </div>
+      <hr class="detail-divider" />
+      <div id="detail-theta" class="detail-section">
+        <span class="detail-section-label">Theta:</span>
+        <div id="dm-theta" class="theta-grid"></div>
+      </div>
+      <hr class="detail-divider" />
+      <div class="detail-section">
+        <span class="detail-section-label">Created:</span>
+        <span id="dm-created">—</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── ES module entry point ─────────────────────── -->
+  <script type="module" src="/static/main.js"></script>
+
+  <!-- ── Fallback for browsers without ES module support ── -->
+  <script nomodule>
+    document.body.innerHTML =
+      '<div style="color:#e6edf3;padding:40px;font-family:monospace">' +
+      'Your browser does not support ES modules. Please upgrade to a modern browser.</div>';
+  </script>
+</body>
+</html>
