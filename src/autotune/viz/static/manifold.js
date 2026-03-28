@@ -261,6 +261,7 @@ export function render(state) {
   };
 
   Plotly.react(_chartDiv, traces, layout, PLOTLY_CONFIG);
+  _chartDiv.removeAllListeners?.('plotly_click');
   _chartDiv.on('plotly_click', (data) => {
     const pt = data?.points?.[0];
     if (pt?.customdata) window.showDetail(pt.customdata);

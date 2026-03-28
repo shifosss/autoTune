@@ -212,8 +212,8 @@ export function render(state) {
 
   Plotly.react(_chartDiv, traces, layout, PLOTLY_CONFIG);
 
-  // Click handler — must reattach after react
-  _chartDiv.removeEventListener('_plotly_click_bound', _clickHandler);
+  // Click handler — remove previous before reattaching
+  _chartDiv.removeAllListeners?.('plotly_click');
   _chartDiv.on('plotly_click', _clickHandler);
 }
 
