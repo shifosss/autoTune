@@ -37,6 +37,7 @@ class DashboardWatcher(FileSystemEventHandler):
         self._prev_dag: dict | None = None
         self._debounce_timer: threading.Timer | None = None
         self._pending_files: set[str] = set()
+        self._lock = threading.Lock()
 
     def set_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Attach the asyncio event loop for thread-safe callbacks."""
@@ -69,25 +70,23 @@ class DashboardWatcher(FileSystemEventHandler):
         filename = Path(path).name
         if filename not in ("dag.json", "manifold_state.json"):
             return
-        self._pending_files.add(filename)
-        if self._debounce_timer is not None:
-            self._debounce_timer.cancel()
-        self._debounce_timer = threading.Timer(DEBOUNCE_SEC, self._flush_pending)
-        self._debounce_timer.start()
+        with self._lock:
+            self._pending_files.add(filename)
+            if self._debounce_timer is not None:
+                self._debounce_timer.cancel()
+            self._debounce_timer = threading.Timer(DEBOUNCE_SEC, self._flush_pending)
+            self._debounce_timer.start()
 
     def _flush_pending(self) -> None:
         """Fire after debounce window: process all pending file notifications."""
-        files = self._pending_files.copy()
-        self._pending_files.clear()
-        self._debounce_timer = None
+        with self._lock:
+            files = self._pending_files.copy()
+            self._pending_files.clear()
+            self._debounce_timer = None
         for filename in files:
             if filename == "dag.json" and _dag_path and _dag_path.exists():
                 self._notify_dag()
-            elif (
-                filename == "manifold_state.json"
-                and _manifold_path
-                and _manifold_path.exists()
-            ):
+            elif filename == "manifold_state.json" and _manifold_path and _manifold_path.exists():
                 self._notify_manifold()
 
     def _notify_dag(self) -> None:
@@ -96,8 +95,9 @@ class DashboardWatcher(FileSystemEventHandler):
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Failed to read dag.json: %s", e)
             return
-        changed, added = self._diff_nodes(data)
-        self._prev_dag = data
+        with self._lock:
+            changed, added = self._diff_nodes(data)
+            self._prev_dag = data
         event = self._build_dag_event(data, changed, added)
         self._broadcast(event)
 
@@ -137,9 +137,7 @@ class DashboardWatcher(FileSystemEventHandler):
 
     # ── event construction ──
 
-    def _build_dag_event(
-        self, data: dict, changed: list[str], added: list[str]
-    ) -> dict:
+    def _build_dag_event(self, data: dict, changed: list[str], added: list[str]) -> dict:
         """Build a dag_update SSE event payload."""
         return {
             "type": "dag_update",
@@ -159,10 +157,9 @@ class DashboardWatcher(FileSystemEventHandler):
         if _dag_path and _dag_path.exists():
             try:
                 data = json.loads(_dag_path.read_text())
-                self._prev_dag = data
-                return self._build_dag_event(
-                    data, [], list(data.get("nodes", {}).keys())
-                )
+                with self._lock:
+                    self._prev_dag = data
+                return self._build_dag_event(data, [], list(data.get("nodes", {}).keys()))
             except (json.JSONDecodeError, OSError):
                 pass
         return None
