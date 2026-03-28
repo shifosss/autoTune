@@ -1,10 +1,6 @@
 """Tests for viz server watcher and SSE event construction."""
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 
 class TestDagWatcher:
@@ -140,7 +136,6 @@ class TestScheduleNotify:
 
     def test_pending_files_accumulate(self):
         from autotune.viz.server import DashboardWatcher
-        import threading
 
         watcher = DashboardWatcher()
         # Patch timer to not actually fire
