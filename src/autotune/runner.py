@@ -229,7 +229,10 @@ class ExperimentRunner:
 
                 return load_file(str(path))
             except (ImportError, ModuleNotFoundError):
-                pass
+                raise ImportError(
+                    "safetensors is required to load .safetensors files. "
+                    "Install with: uv pip install -e '.[safetensors]'"
+                )
 
         # Fall back to torch
         try:
@@ -260,7 +263,10 @@ class ExperimentRunner:
                 save_file(state_dict, str(path))
                 return
             except (ImportError, ModuleNotFoundError):
-                pass
+                raise ImportError(
+                    "safetensors is required to save in safetensors format. "
+                    "Install with: uv pip install -e '.[safetensors]'"
+                )
 
         import torch
 
@@ -288,10 +294,7 @@ class ExperimentRunner:
             NotImplementedError: If strategy is "selective".
             ValueError: If strategy is unknown.
         """
-        state_dicts = [
-            self._load_state_dict(checkpoint_store / pid)
-            for pid in parent_ids
-        ]
+        state_dicts = [self._load_state_dict(checkpoint_store / pid) for pid in parent_ids]
 
         if strategy == "weighted_avg":
             merged = {}
@@ -299,9 +302,7 @@ class ExperimentRunner:
             for sd in state_dicts[1:]:
                 common_keys &= set(sd.keys())
             for key in common_keys:
-                merged[key] = sum(
-                    w * sd[key] for w, sd in zip(weights, state_dicts)
-                )
+                merged[key] = sum(w * sd[key] for w, sd in zip(weights, state_dicts))
             self._save_state_dict(merged, dest_path / "pytorch_model.bin", "pytorch")
 
         elif strategy == "compose":
@@ -360,5 +361,8 @@ class ExperimentRunner:
         self._save_state_dict(grafted, dest_path / "pytorch_model.bin", "pytorch")
         logger.info(
             "Grafted %s (delta from %s) onto %s -> %s",
-            source_id, source_parent_id, target_parent_id, dest_path,
+            source_id,
+            source_parent_id,
+            target_parent_id,
+            dest_path,
         )
