@@ -165,6 +165,110 @@ class TestCheckpointIO:
         assert saved["obj"] == {"w": [1.0]}
 
 
+class TestMergeCheckpoints:
+    """Tests for merge_checkpoints with various strategies."""
+
+    def _setup_parents(self, project_repo, monkeypatch):
+        """Create fake checkpoints and mock torch."""
+        import types
+
+        store = project_repo / "checkpoints"
+        store.mkdir()
+        # Parent A: {"w": [1.0, 2.0]}
+        p_a = store / "node_0001"
+        p_a.mkdir()
+        (p_a / "pytorch_model.bin").write_text("fake_a")
+        # Parent B: {"w": [3.0, 4.0]}
+        p_b = store / "node_0002"
+        p_b.mkdir()
+        (p_b / "pytorch_model.bin").write_text("fake_b")
+
+        import numpy as np
+
+        state_a = {"w": np.array([1.0, 2.0])}
+        state_b = {"w": np.array([3.0, 4.0])}
+
+        mock_torch = types.ModuleType("torch")
+        load_map = {str(p_a / "pytorch_model.bin"): state_a, str(p_b / "pytorch_model.bin"): state_b}
+        mock_torch.load = lambda path, **kw: load_map[str(path)]
+        saved_state = {}
+        mock_torch.save = lambda obj, path: saved_state.update({"obj": obj, "path": str(path)})
+        monkeypatch.setitem(__import__("sys").modules, "torch", mock_torch)
+        monkeypatch.setitem(__import__("sys").modules, "safetensors", None)
+        return store, saved_state
+
+    def test_weighted_avg(self, project_repo, monkeypatch):
+        import numpy as np
+
+        store, saved_state = self._setup_parents(project_repo, monkeypatch)
+        dest = project_repo / "merged"
+        runner = ExperimentRunner(project_repo)
+        runner.merge_checkpoints(
+            parent_ids=("node_0001", "node_0002"),
+            weights=(0.5, 0.5),
+            strategy="weighted_avg",
+            checkpoint_store=store,
+            dest_path=dest,
+        )
+        np.testing.assert_array_almost_equal(saved_state["obj"]["w"], [2.0, 3.0])
+
+    def test_compose(self, project_repo, monkeypatch):
+        import numpy as np
+
+        store, saved_state = self._setup_parents(project_repo, monkeypatch)
+        dest = project_repo / "merged"
+        runner = ExperimentRunner(project_repo)
+        runner.merge_checkpoints(
+            parent_ids=("node_0001", "node_0002"),
+            weights=(1.0, 1.0),
+            strategy="compose",
+            checkpoint_store=store,
+            dest_path=dest,
+        )
+        # compose: base + sum(deltas from base)
+        # base = A = [1,2], delta_B = B - A = [2,2], result = A + [2,2] = [3,4]
+        np.testing.assert_array_almost_equal(saved_state["obj"]["w"], [3.0, 4.0])
+
+    def test_selective_raises(self, project_repo, monkeypatch):
+        store, _ = self._setup_parents(project_repo, monkeypatch)
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(NotImplementedError, match="selective"):
+            runner.merge_checkpoints(
+                parent_ids=("node_0001", "node_0002"),
+                weights=(0.5, 0.5),
+                strategy="selective",
+                checkpoint_store=store,
+                dest_path=project_repo / "merged",
+            )
+
+    def test_unknown_strategy_raises(self, project_repo, monkeypatch):
+        store, _ = self._setup_parents(project_repo, monkeypatch)
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ValueError, match="Unknown"):
+            runner.merge_checkpoints(
+                parent_ids=("node_0001",),
+                weights=(1.0,),
+                strategy="magic",
+                checkpoint_store=store,
+                dest_path=project_repo / "merged",
+            )
+
+    def test_no_torch_raises(self, project_repo, monkeypatch):
+        monkeypatch.setitem(__import__("sys").modules, "torch", None)
+        monkeypatch.setitem(__import__("sys").modules, "safetensors", None)
+        store = project_repo / "checkpoints"
+        store.mkdir()
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ImportError, match="torch"):
+            runner.merge_checkpoints(
+                parent_ids=("node_0001",),
+                weights=(1.0,),
+                strategy="weighted_avg",
+                checkpoint_store=store,
+                dest_path=project_repo / "merged",
+            )
+
+
 class TestCheckpointCollection:
     def test_collect_checkpoint(self, project_repo):
         runner = ExperimentRunner(project_repo)

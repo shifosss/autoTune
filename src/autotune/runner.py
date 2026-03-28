@@ -265,3 +265,60 @@ class ExperimentRunner:
         import torch
 
         torch.save(state_dict, str(path))
+
+    def merge_checkpoints(
+        self,
+        parent_ids: tuple[str, ...],
+        weights: tuple[float, ...],
+        strategy: str,
+        checkpoint_store: Path,
+        dest_path: Path,
+    ) -> None:
+        """Merge multiple parent checkpoints into a single checkpoint.
+
+        Args:
+            parent_ids: IDs of parent nodes whose checkpoints to merge.
+            weights: Per-parent weights for merging.
+            strategy: One of "weighted_avg", "compose", "selective".
+            checkpoint_store: Root directory containing per-node checkpoint dirs.
+            dest_path: Where to write the merged checkpoint.
+
+        Raises:
+            ImportError: If torch is not installed.
+            NotImplementedError: If strategy is "selective".
+            ValueError: If strategy is unknown.
+        """
+        state_dicts = [
+            self._load_state_dict(checkpoint_store / pid)
+            for pid in parent_ids
+        ]
+
+        if strategy == "weighted_avg":
+            merged = {}
+            common_keys = set(state_dicts[0].keys())
+            for sd in state_dicts[1:]:
+                common_keys &= set(sd.keys())
+            for key in common_keys:
+                merged[key] = sum(
+                    w * sd[key] for w, sd in zip(weights, state_dicts)
+                )
+            self._save_state_dict(merged, dest_path / "pytorch_model.bin", "pytorch")
+
+        elif strategy == "compose":
+            base = state_dicts[0]
+            accumulated_delta = {k: base[k] * 0.0 for k in base}
+            for sd in state_dicts[1:]:
+                for k in accumulated_delta:
+                    if k in sd:
+                        accumulated_delta[k] = accumulated_delta[k] + (sd[k] - base[k])
+            composed = {k: base[k] + accumulated_delta[k] for k in base}
+            self._save_state_dict(composed, dest_path / "pytorch_model.bin", "pytorch")
+
+        elif strategy == "selective":
+            raise NotImplementedError(
+                "selective merge requires layer_manifest config (not yet supported)"
+            )
+        else:
+            raise ValueError(f"Unknown merge strategy: {strategy}")
+
+        logger.info("Merged checkpoints %s via %s -> %s", parent_ids, strategy, dest_path)
