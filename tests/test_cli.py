@@ -729,3 +729,13 @@ class TestCheckpoints:
         result = runner.invoke(main, ["checkpoints", "--prune"])
         assert result.exit_code == 0
         assert not ckpt_dir.exists()
+
+
+class TestVizCLI:
+    def test_viz_status_not_running(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        result = runner.invoke(main, ["viz", "status"])
+        assert result.exit_code == 0
+        assert "not running" in result.output.lower()

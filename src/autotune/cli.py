@@ -649,3 +649,42 @@ def checkpoints(prune: bool) -> None:
 
     if prune:
         click.echo(f"Pruned {pruned} checkpoints.")
+
+
+@main.group()
+def viz() -> None:
+    """Manage the visualization dashboard server."""
+
+
+@viz.command("start")
+@click.option("--port", default=8420, help="HTTP port")
+def viz_start(port: int) -> None:
+    """Start the visualization dashboard (foreground)."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.viz.server import cmd_start
+
+    cmd_start(port=port, project_root=root)
+
+
+@viz.command("stop")
+def viz_stop() -> None:
+    """Stop the visualization dashboard."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.viz.server import cmd_stop
+
+    cmd_stop(project_root=root)
+
+
+@viz.command("status")
+def viz_status() -> None:
+    """Show visualization server status."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.viz.server import cmd_status
+
+    cmd_status(project_root=root)
