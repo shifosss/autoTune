@@ -1,5 +1,6 @@
 """Tests for autoTune CLI commands."""
 
+import json
 import subprocess
 
 import pytest
@@ -163,8 +164,6 @@ class TestCheck:
         assert "dag.json" in result.output.lower()
 
     def test_check_orphan_parent(self, project_dir, monkeypatch):
-        import json
-
         monkeypatch.chdir(project_dir)
         runner = CliRunner()
         runner.invoke(main, ["init"])
@@ -213,3 +212,369 @@ class TestCheck:
         result = runner.invoke(main, ["check"])
         assert result.exit_code == 0
         assert "orphan" in result.output.lower()
+
+
+class TestSubmit:
+    def test_submit_seed_creates_dag(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        result = runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "baseline LoRA",
+                "--theta", '{"lr": 2e-4, "rank": 16}',
+                "--task-score", "0.72",
+                "--cost", "1.5",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "node_0001" in result.output
+        assert (project_dir / "autotune" / "dag.json").exists()
+
+    def test_submit_seed_with_retention(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        result = runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "baseline",
+                "--theta", '{"lr": 2e-4, "rank": 16}',
+                "--task-score", "0.72",
+                "--cost", "1.5",
+                "--retention-score", "0.95",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        from autotune.dag import ExperimentDAG
+
+        dag = ExperimentDAG.load(project_dir / "autotune" / "dag.json")
+        node = dag.get_node("node_0001")
+        assert node.retention_score == 0.95
+
+    def test_submit_seed_appends(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "first",
+                "--theta", '{"lr": 2e-4}',
+                "--task-score", "0.72",
+                "--cost", "1.0",
+            ],
+        )
+        result = runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "second",
+                "--theta", '{"lr": 5e-4}',
+                "--task-score", "0.80",
+                "--cost", "1.2",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "node_0002" in result.output
+
+    def test_submit_seed_composite_defaults(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "test",
+                "--theta", '{"lr": 2e-4}',
+                "--task-score", "0.72",
+                "--cost", "1.0",
+            ],
+        )
+        from autotune.dag import ExperimentDAG
+
+        dag = ExperimentDAG.load(project_dir / "autotune" / "dag.json")
+        node = dag.get_node("node_0001")
+        assert node.composite == 0.72  # defaults to task_score
+
+    def test_submit_requires_theta(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        result = runner.invoke(
+            main,
+            ["submit", "--desc", "test", "--task-score", "0.72", "--cost", "1.0"],
+        )
+        assert result.exit_code != 0
+
+    def test_submit_queue_writes_spec(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        # Create seed first
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "base",
+                "--theta", '{"lr": 2e-4}',
+                "--task-score", "0.72",
+                "--cost", "1.0",
+            ],
+        )
+        # Propose a branch
+        runner.invoke(
+            main,
+            [
+                "propose",
+                "--parents", "node_0001",
+                "--move", "branch",
+                "--desc", "increase lr",
+                "--theta", '{"lr": 5e-4}',
+            ],
+        )
+        # Submit the proposed node to queue
+        result = runner.invoke(main, ["submit", "--node", "node_0002"])
+        assert result.exit_code == 0, result.output
+        queue_file = project_dir / "autotune" / "orchestrator" / "queue" / "node_0002.json"
+        assert queue_file.exists()
+        spec = json.loads(queue_file.read_text())
+        assert spec["node_id"] == "node_0002"
+
+    def test_submit_queue_rejects_nonexistent_node(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "base",
+                "--theta", '{"lr": 2e-4}',
+                "--task-score", "0.72",
+                "--cost", "1.0",
+            ],
+        )
+        result = runner.invoke(main, ["submit", "--node", "node_9999"])
+        assert result.exit_code != 0
+
+
+class TestPropose:
+    def test_propose_branch(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "base",
+                "--theta", '{"lr": 2e-4}',
+                "--task-score", "0.72",
+                "--cost", "1.0",
+            ],
+        )
+        result = runner.invoke(
+            main,
+            [
+                "propose",
+                "--parents", "node_0001",
+                "--move", "branch",
+                "--desc", "increase lr",
+                "--theta", '{"lr": 5e-4}',
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "node_0002" in result.output
+
+    def test_propose_merge(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "A",
+                "--theta", '{"lr": 2e-4}',
+                "--task-score", "0.72",
+                "--cost", "1.0",
+            ],
+        )
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "B",
+                "--theta", '{"lr": 5e-4}',
+                "--task-score", "0.80",
+                "--cost", "1.5",
+            ],
+        )
+        result = runner.invoke(
+            main,
+            [
+                "propose",
+                "--parents", "node_0001",
+                "--parents", "node_0002",
+                "--move", "merge",
+                "--desc", "merge A+B",
+                "--theta", '{"lr": 3.5e-4}',
+                "--merge-strategy", "weighted_avg",
+                "--merge-weights", "0.6,0.4",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "node_0003" in result.output
+
+    def test_propose_invalid_move(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "base",
+                "--theta", '{"lr": 2e-4}',
+                "--task-score", "0.72",
+                "--cost", "1.0",
+            ],
+        )
+        result = runner.invoke(
+            main,
+            [
+                "propose",
+                "--parents", "node_0001",
+                "--move", "invalid",
+                "--desc", "bad",
+                "--theta", '{"lr": 5e-4}',
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_propose_no_dag(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        result = runner.invoke(
+            main,
+            [
+                "propose",
+                "--parents", "node_0001",
+                "--move", "branch",
+                "--desc", "test",
+                "--theta", '{"lr": 5e-4}',
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_propose_nonexistent_parent(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "base",
+                "--theta", '{"lr": 2e-4}',
+                "--task-score", "0.72",
+                "--cost", "1.0",
+            ],
+        )
+        result = runner.invoke(
+            main,
+            [
+                "propose",
+                "--parents", "node_9999",
+                "--move", "branch",
+                "--desc", "test",
+                "--theta", '{"lr": 5e-4}',
+            ],
+        )
+        assert result.exit_code != 0
+
+
+class TestRank:
+    def test_rank_shows_proposals(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "base",
+                "--theta", '{"lr": 2e-4}',
+                "--task-score", "0.72",
+                "--cost", "1.0",
+            ],
+        )
+        runner.invoke(
+            main,
+            [
+                "propose",
+                "--parents", "node_0001",
+                "--move", "branch",
+                "--desc", "A",
+                "--theta", '{"lr": 3e-4}',
+            ],
+        )
+        runner.invoke(
+            main,
+            [
+                "propose",
+                "--parents", "node_0001",
+                "--move", "branch",
+                "--desc", "B",
+                "--theta", '{"lr": 5e-4}',
+            ],
+        )
+        result = runner.invoke(main, ["rank"])
+        assert result.exit_code == 0, result.output
+        assert "node_0002" in result.output
+        assert "node_0003" in result.output
+
+    def test_rank_no_dag(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        result = runner.invoke(main, ["rank"])
+        assert result.exit_code != 0
+
+    def test_rank_n_limit(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc", "base",
+                "--theta", '{"lr": 2e-4}',
+                "--task-score", "0.72",
+                "--cost", "1.0",
+            ],
+        )
+        for i in range(3):
+            runner.invoke(
+                main,
+                [
+                    "propose",
+                    "--parents", "node_0001",
+                    "--move", "branch",
+                    "--desc", f"trial {i}",
+                    "--theta", f'{{"lr": {(i + 3) * 1e-4}}}',
+                ],
+            )
+        result = runner.invoke(main, ["rank", "--n", "1"])
+        assert result.exit_code == 0, result.output
+        # Output should have exactly 1 ranked entry (line with "1.")
+        ranked_lines = [l for l in result.output.strip().split("\n") if l.strip().startswith("1.")]
+        assert len(ranked_lines) == 1

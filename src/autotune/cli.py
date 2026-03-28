@@ -321,6 +321,228 @@ def check() -> None:
 
 
 @main.command()
+@click.option("--node", default=None, help="Node ID to queue (queue mode)")
+@click.option("--desc", default=None, help="Experiment description")
+@click.option("--theta", default=None, help="Hyperparameters as JSON")
+@click.option("--task-score", type=float, default=None, help="Task metric score")
+@click.option("--retention-score", type=float, default=None, help="Retention score")
+@click.option("--cost", type=float, default=None, help="Cost in GPU-hours")
+@click.option("--composite", type=float, default=None, help="Composite score")
+@click.option("--techniques", default=None, help="Comma-separated technique tags")
+@click.option("--files", multiple=True, help="Files to include in queue spec")
+def submit(
+    node: str | None,
+    desc: str | None,
+    theta: str | None,
+    task_score: float | None,
+    retention_score: float | None,
+    cost: float | None,
+    composite: float | None,
+    techniques: str | None,
+    files: tuple[str, ...],
+) -> None:
+    """Register a seed experiment or queue a proposed node."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+
+    if node is not None:
+        _submit_queue(root, node, files)
+    else:
+        _submit_seed(root, desc, theta, task_score, retention_score, cost, composite, techniques)
+
+
+def _submit_seed(
+    root: Path,
+    desc: str | None,
+    theta_str: str | None,
+    task_score: float | None,
+    retention_score: float | None,
+    cost: float | None,
+    composite: float | None,
+    techniques_str: str | None,
+) -> None:
+    """Register a completed seed experiment in the DAG."""
+    import json as json_mod
+
+    from autotune.dag import ExperimentDAG
+    from autotune.types import ScoringConfig
+
+    if theta_str is None:
+        raise click.ClickException("--theta is required for seed submission.")
+    if task_score is None:
+        raise click.ClickException("--task-score is required for seed submission.")
+    if cost is None:
+        raise click.ClickException("--cost is required for seed submission.")
+
+    try:
+        theta = json_mod.loads(theta_str)
+    except json_mod.JSONDecodeError as e:
+        raise click.ClickException(f"Invalid JSON for --theta: {e}") from e
+
+    config = _load_config(root)
+    scoring_cfg = config.get("scoring", {})
+    scoring = ScoringConfig(
+        exploration_weight=scoring_cfg.get("exploration_weight", 0.005),
+        diversity_weight=scoring_cfg.get("diversity_weight", 0.01),
+        retention_cliff_threshold=scoring_cfg.get("retention_cliff_threshold", -0.10),
+    )
+    retention_enabled = config.get("retention", {}).get("enabled", False)
+    objective_count = 3 if retention_enabled or retention_score is not None else 2
+
+    dag_path = root / "autotune" / "dag.json"
+    if dag_path.exists():
+        dag = ExperimentDAG.load(dag_path)
+    else:
+        dag = ExperimentDAG.create(dag_path, scoring, objective_count=objective_count)
+
+    technique_tags = tuple(t.strip() for t in techniques_str.split(",")) if techniques_str else ()
+    effective_composite = composite if composite is not None else task_score
+
+    seed = dag.add_seed(
+        theta=theta,
+        description=desc or "",
+        techniques=technique_tags,
+        composite=effective_composite,
+        task_score=task_score,
+        retention_score=retention_score,
+        cost=cost,
+    )
+    dag.rerank_pareto()
+    dag.recalculate_potential()
+    dag.save()
+    click.echo(f"Seed registered: {seed.id} (composite={effective_composite:.4f})")
+
+
+def _submit_queue(root: Path, node_id: str, files: tuple[str, ...]) -> None:
+    """Queue a proposed node for orchestrator execution."""
+    import json as json_mod
+
+    from autotune.dag import ExperimentDAG
+
+    dag_path = root / "autotune" / "dag.json"
+    if not dag_path.exists():
+        raise click.ClickException("No DAG found.")
+
+    dag = ExperimentDAG.load(dag_path)
+    node = dag.get_node(node_id)
+    if node is None:
+        raise click.ClickException(f"Node {node_id} not found in DAG.")
+    if node.status != "pending":
+        raise click.ClickException(f"Node {node_id} is not pending (status={node.status}).")
+
+    spec = {
+        "node_id": node_id,
+        "theta": dict(node.theta),
+        "parent_ids": list(node.parent_ids),
+        "move_type": node.move_type,
+        "files": list(files),
+    }
+    queue_dir = root / "autotune" / "orchestrator" / "queue"
+    queue_dir.mkdir(parents=True, exist_ok=True)
+    queue_file = queue_dir / f"{node_id}.json"
+    queue_file.write_text(json_mod.dumps(spec, indent=2))
+    click.echo(f"Queued {node_id} for execution.")
+
+
+@main.command()
+@click.option("--parents", multiple=True, required=True, help="Parent node IDs")
+@click.option("--move", required=True, help="Move type: branch, merge, or graft")
+@click.option("--desc", required=True, help="Experiment description")
+@click.option("--theta", required=True, help="Proposed hyperparameters as JSON")
+@click.option("--techniques", default=None, help="Comma-separated technique tags")
+@click.option("--merge-strategy", default=None, help="Merge algorithm name")
+@click.option("--merge-weights", default=None, help="Comma-separated merge weights")
+def propose(
+    parents: tuple[str, ...],
+    move: str,
+    desc: str,
+    theta: str,
+    techniques: str | None,
+    merge_strategy: str | None,
+    merge_weights: str | None,
+) -> None:
+    """Create a proposed experiment in the DAG."""
+    import json as json_mod
+
+    from autotune.dag import ExperimentDAG
+
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+
+    dag_path = root / "autotune" / "dag.json"
+    if not dag_path.exists():
+        raise click.ClickException("No DAG found. Submit seed experiments first.")
+
+    if move not in ("branch", "merge", "graft"):
+        raise click.ClickException(f"Invalid move type: {move}. Must be branch, merge, or graft.")
+
+    try:
+        theta_dict = json_mod.loads(theta)
+    except json_mod.JSONDecodeError as e:
+        raise click.ClickException(f"Invalid JSON for --theta: {e}") from e
+
+    dag = ExperimentDAG.load(dag_path)
+
+    for pid in parents:
+        if dag.get_node(pid) is None:
+            raise click.ClickException(f"Parent node {pid} not found in DAG.")
+
+    technique_tags = tuple(t.strip() for t in techniques.split(",")) if techniques else ()
+    weights = (
+        tuple(float(w.strip()) for w in merge_weights.split(","))
+        if merge_weights
+        else None
+    )
+
+    node = dag.add_proposed(
+        parent_ids=parents,
+        move_type=move,
+        description=desc,
+        techniques=technique_tags,
+        theta=theta_dict,
+        merge_strategy=merge_strategy,
+        merge_weights=weights,
+    )
+    dag.recalculate_potential()
+    dag.save()
+    click.echo(f"Proposed: {node.id} ({move} from {', '.join(parents)})")
+
+
+@main.command()
+@click.option("--n", default=10, help="Number of proposals to show")
+def rank(n: int) -> None:
+    """Show ranked pending proposals."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+
+    dag_path = root / "autotune" / "dag.json"
+    if not dag_path.exists():
+        raise click.ClickException("No DAG found.")
+
+    from autotune.dag import ExperimentDAG
+
+    dag = ExperimentDAG.load(dag_path)
+    ranked = dag.rank_proposals(n=n)
+
+    if not ranked:
+        click.echo("No pending proposals.")
+        return
+
+    click.echo(f"Ranked proposals (top {len(ranked)}):\n")
+    for i, node in enumerate(ranked, 1):
+        parents = ", ".join(node.parent_ids)
+        click.echo(
+            f"{i}. {node.id} [{node.move_type}] from {parents} "
+            f"(potential={node.potential:.3f})"
+        )
+        if node.strategy_desc:
+            click.echo(f"   {node.strategy_desc}")
+
+
+@main.command()
 def reconcile() -> None:
     """Sync DAG with orchestrator state."""
     root = _find_project_root()
