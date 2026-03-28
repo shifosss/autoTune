@@ -562,3 +562,90 @@ def reconcile() -> None:
     dag.save()
     meta = dag.meta()
     click.echo(f"Reconciled. Executed: {meta.total_executed}, Best: {meta.best_composite}")
+
+
+@main.group()
+def orchestrator() -> None:
+    """Manage the GPU scheduler daemon."""
+
+
+@orchestrator.command("start")
+def orch_start() -> None:
+    """Start the orchestrator daemon (foreground)."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.orchestrator import ExperimentOrchestrator
+
+    orch = ExperimentOrchestrator(root)
+    orch.cmd_start()
+
+
+@orchestrator.command("stop")
+def orch_stop() -> None:
+    """Stop the running orchestrator."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.orchestrator import ExperimentOrchestrator
+
+    orch = ExperimentOrchestrator(root)
+    orch.cmd_stop()
+
+
+@orchestrator.command("status")
+def orch_status() -> None:
+    """Show orchestrator status."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.orchestrator import ExperimentOrchestrator
+
+    orch = ExperimentOrchestrator(root)
+    orch.cmd_status()
+
+
+@main.command()
+@click.option("--prune", is_flag=True, help="Delete checkpoints for pareto_rank >= 2")
+def checkpoints(prune: bool) -> None:
+    """List or prune managed checkpoints."""
+    import shutil
+
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+
+    store = root / "autotune" / "orchestrator" / "checkpoints"
+    if not store.exists():
+        click.echo("No checkpoints directory.")
+        return
+
+    dag_path = root / "autotune" / "dag.json"
+    node_ranks: dict[str, int | None] = {}
+    if dag_path.exists():
+        from autotune.dag import ExperimentDAG
+
+        dag = ExperimentDAG.load(dag_path)
+        for node in dag.all_executed():
+            node_ranks[node.id] = node.pareto_rank
+
+    ckpt_dirs = sorted(d for d in store.iterdir() if d.is_dir())
+    if not ckpt_dirs:
+        click.echo("No checkpoints found.")
+        return
+
+    pruned = 0
+    for d in ckpt_dirs:
+        node_id = d.name
+        rank = node_ranks.get(node_id)
+        size_mb = sum(f.stat().st_size for f in d.rglob("*") if f.is_file()) / (1024 * 1024)
+
+        if prune and rank is not None and rank >= 2:
+            shutil.rmtree(d)
+            click.echo(f"  Pruned: {node_id} (rank={rank}, {size_mb:.1f}MB)")
+            pruned += 1
+        else:
+            click.echo(f"  {node_id}: rank={rank}, {size_mb:.1f}MB")
+
+    if prune:
+        click.echo(f"Pruned {pruned} checkpoints.")
