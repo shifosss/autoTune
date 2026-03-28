@@ -95,6 +95,10 @@ class StrategyNavigator:
                     k: 0.5 * a.theta.get(k, 0) + 0.5 * b.theta.get(k, 0)
                     for k in set(a.theta) | set(b.theta)
                 }
+                coords = self._manifold.project(merged_theta)
+                if self._forgetting.is_in_danger_zone_coords(coords):
+                    logger.debug("Merge %s+%s skipped: in danger zone", a.id, b.id)
+                    continue
                 proposals.append(
                     MoveProposal(
                         move_type="merge",
@@ -328,7 +332,7 @@ class StrategyNavigator:
         ret_str = ""
         if parent.retention_score is not None:
             ret_str = f", retention budget={parent.retention_score:.2f}"
-        return f"parent composite={parent.composite:.3f}{ret_str}"
+        return f"parent composite={(parent.composite or 0.0):.3f}{ret_str}"
 
     def _merge_reasoning(self, a: DAGNode, b: DAGNode, div: float) -> str:
         """Format a merge proposal reasoning string.
@@ -343,6 +347,6 @@ class StrategyNavigator:
         """
         return (
             f"diversity={div:.2f}, "
-            f"{a.id} task={a.task_score:.3f} ret={a.retention_score}, "
-            f"{b.id} task={b.task_score:.3f} ret={b.retention_score}"
+            f"{a.id} task={(a.task_score or 0.0):.3f} ret={(a.retention_score or 0.0):.3f}, "
+            f"{b.id} task={(b.task_score or 0.0):.3f} ret={(b.retention_score or 0.0):.3f}"
         )

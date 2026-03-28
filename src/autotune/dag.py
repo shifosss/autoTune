@@ -338,7 +338,6 @@ class ExperimentDAG:
         node = self._data["nodes"][node_id]
         node["node_type"] = "executed"
         node["status"] = status
-        self._data["meta"]["total_executed"] += 1
         logger.warning("Marked %s as failed (status=%s, error=%s)", node_id, status, error)
         return self._node_to_dataclass(node)
 

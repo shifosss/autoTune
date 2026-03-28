@@ -266,6 +266,61 @@ def frontier() -> None:
 
 
 @main.command()
+def check() -> None:
+    """Verify project health and consistency."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+
+    issues: list[str] = []
+
+    # 1. Config parseable
+    config_path = root / "autotune" / "config.yaml"
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            issues.append(f"config.yaml parse error: {e}")
+    else:
+        issues.append("config.yaml not found")
+
+    # 2. Orchestrator directories
+    orch = root / "autotune" / "orchestrator"
+    for subdir in ("queue", "running", "completed", "archive", "checkpoints"):
+        if not (orch / subdir).is_dir():
+            issues.append(f"orchestrator/{subdir} directory missing")
+
+    # 3. DAG validation (if it exists)
+    dag_path = root / "autotune" / "dag.json"
+    if dag_path.exists():
+        import json
+
+        try:
+            with open(dag_path) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, ValueError) as e:
+            issues.append(f"dag.json parse error: {e}")
+            data = None
+
+        if data is not None:
+            if "schema_version" not in data:
+                issues.append("dag.json missing schema_version")
+            nodes = data.get("nodes", {})
+            all_ids = set(nodes.keys())
+            for nid, node in nodes.items():
+                for pid in node.get("parent_ids", []):
+                    if pid not in all_ids:
+                        issues.append(f"orphan parent reference: {nid} -> {pid}")
+
+    if issues:
+        for issue in issues:
+            click.echo(f"  Issue: {issue}")
+    else:
+        click.echo("All checks passed.")
+
+
+@main.command()
 def reconcile() -> None:
     """Sync DAG with orchestrator state."""
     root = _find_project_root()

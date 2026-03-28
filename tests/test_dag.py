@@ -686,3 +686,33 @@ class TestNewQueryMethods:
         ranked = dag.rank_proposals(n=5)
         assert len(ranked) == 2
         assert ranked[0].status == "pending"
+
+
+class TestMarkFailedCounter:
+    """Regression: mark_failed must not inflate total_executed (UCB denominator)."""
+
+    def test_mark_failed_does_not_inflate_total_executed(self, tmp_path):
+        dag = _make_dag(tmp_path)
+        dag.add_seed(
+            theta={"lr": 2e-4, "rank": 16},
+            description="baseline",
+            techniques=("baseline",),
+            composite=0.72,
+            task_score=0.72,
+            retention_score=0.98,
+            cost=1.5,
+        )
+        assert dag.meta().total_executed == 1
+
+        dag.add_proposed(
+            parent_ids=("node_0001",),
+            move_type="branch",
+            description="test",
+            techniques=("lr_increase",),
+            theta={"lr": 5e-4, "rank": 16},
+        )
+        dag.mark_running("node_0002")
+        dag.mark_failed("node_0002", "oom")
+
+        # Failed node should NOT inflate total_executed
+        assert dag.meta().total_executed == 1

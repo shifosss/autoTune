@@ -153,11 +153,24 @@ class ManifoldNavigator:
             ) * self._covariance + _COVARIANCE_LR * weighted_outer
         self._mean = new_mean
 
+        # Snapshot eigenvalues before decomposition for step size adaptation
+        old_eigenvalues = self._eigenvalues.copy()
+        was_initialized = self._generation > 0
+
         # Eigendecomposition (eigh guarantees real, sorted ascending)
         eigenvalues, eigenvectors = np.linalg.eigh(self._covariance)
         sort_idx = np.argsort(eigenvalues)[::-1]
         self._eigenvalues = eigenvalues[sort_idx]
         self._eigenvectors = eigenvectors[:, sort_idx]
+
+        # Step size adaptation: scale by eigenvalue change direction
+        if was_initialized:
+            for i in range(len(self._param_names)):
+                if self._eigenvalues[i] > old_eigenvalues[i]:
+                    self._step_sizes[i] *= 1.2
+                else:
+                    self._step_sizes[i] *= 0.8
+            self._step_sizes = np.clip(self._step_sizes, 0.01, 1.0)
 
         # Effective dimensionality: smallest k s.t. sum(λ[:k]) / sum(λ) >= threshold
         total_var = float(self._eigenvalues.sum())
@@ -347,6 +360,10 @@ class ManifoldNavigator:
             "param_bounds": {k: list(v) for k, v in self._param_bounds.items()},
             "covariance": [list(row) for row in state.covariance],
             "principal_components": [list(pc) for pc in state.principal_components],
+            "all_eigenvectors": [
+                [float(v) for v in self._eigenvectors[:, j]]
+                for j in range(len(self._param_names))
+            ],
             "eigenvalues": list(state.eigenvalues),
             "effective_dim": state.effective_dim,
             "mean": list(state.mean),
@@ -390,10 +407,15 @@ class ManifoldNavigator:
         nav._eigenvalues = np.array(data["eigenvalues"])
 
         d = len(data["param_names"])
-        pcs = data["principal_components"]
-        nav._eigenvectors = np.eye(d)
-        for j, pc in enumerate(pcs):
-            nav._eigenvectors[:, j] = pc
+        if "all_eigenvectors" in data:
+            for j, col in enumerate(data["all_eigenvectors"]):
+                nav._eigenvectors[:, j] = col
+        else:
+            # Backward compatibility: old format only has effective_dim PCs
+            pcs = data["principal_components"]
+            nav._eigenvectors = np.eye(d)
+            for j, pc in enumerate(pcs):
+                nav._eigenvectors[:, j] = pc
 
         nav._mean = np.array(data["mean"])
         nav._step_sizes = np.array(data["step_sizes"])

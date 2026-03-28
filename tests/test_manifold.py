@@ -1,3 +1,5 @@
+import numpy as np
+
 from autotune.manifold import ManifoldNavigator
 
 
@@ -78,3 +80,65 @@ class TestManifoldPersistence:
         loaded = ManifoldNavigator.load(path)
         assert loaded.state().generation == nav.state().generation
         assert loaded.state().effective_dim == nav.state().effective_dim
+
+
+class TestStepSizeAdaptation:
+    """Regression: step_sizes must adapt after manifold updates."""
+
+    def test_step_sizes_adapt_after_update(self):
+        nav = ManifoldNavigator(
+            param_names=("a", "b"),
+            param_bounds={"a": (0.0, 1.0), "b": (0.0, 1.0)},
+        )
+        initial_steps = nav._step_sizes.copy()
+
+        # First update: strong positive correlation
+        points1 = [{"a": 0.1 * i, "b": 0.1 * i} for i in range(10)]
+        objectives1 = [(0.5 + 0.05 * i,) for i in range(10)]
+        nav.update(points1, objectives1)
+        after_first = nav._step_sizes.copy()
+
+        # Second update: shift the correlation pattern
+        points2 = [{"a": 0.1 * i, "b": 0.9 - 0.05 * i} for i in range(10)]
+        objectives2 = [(0.8 + 0.02 * i,) for i in range(10)]
+        nav.update(points2, objectives2)
+        after_second = nav._step_sizes.copy()
+
+        # Step sizes must have changed from initial
+        assert not np.array_equal(after_second, initial_steps), (
+            "Step sizes were never adapted from initial values"
+        )
+        # All step sizes within valid range
+        assert np.all(after_second >= 0.01)
+        assert np.all(after_second <= 1.0)
+
+
+class TestEigenvectorPersistence:
+    """Regression: save/load must preserve ALL eigenvector columns."""
+
+    def test_save_load_preserves_all_eigenvectors(self, tmp_path):
+        nav = ManifoldNavigator(
+            param_names=("a", "b", "c"),
+            param_bounds={"a": (0.0, 1.0), "b": (0.0, 1.0), "c": (0.0, 1.0)},
+        )
+        # Create correlated data so effective_dim < 3
+        points = [
+            {"a": 0.1 * i, "b": 0.1 * i + 0.01 * (i % 3), "c": 0.5}
+            for i in range(10)
+        ]
+        objectives = [(0.5 + 0.05 * i,) for i in range(10)]
+        nav.update(points, objectives)
+
+        original_eigenvectors = nav._eigenvectors.copy()
+        assert nav._effective_dim < 3, "Test setup: need effective_dim < d for this test"
+
+        path = tmp_path / "manifold.json"
+        nav.save(path)
+        loaded = ManifoldNavigator.load(path)
+
+        np.testing.assert_array_almost_equal(
+            loaded._eigenvectors,
+            original_eigenvectors,
+            decimal=10,
+            err_msg="Eigenvectors not fully preserved after save/load round-trip",
+        )
