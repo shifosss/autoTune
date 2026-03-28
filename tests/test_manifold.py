@@ -96,7 +96,6 @@ class TestStepSizeAdaptation:
         points1 = [{"a": 0.1 * i, "b": 0.1 * i} for i in range(10)]
         objectives1 = [(0.5 + 0.05 * i,) for i in range(10)]
         nav.update(points1, objectives1)
-        after_first = nav._step_sizes.copy()
 
         # Second update: shift the correlation pattern
         points2 = [{"a": 0.1 * i, "b": 0.9 - 0.05 * i} for i in range(10)]
@@ -122,10 +121,7 @@ class TestEigenvectorPersistence:
             param_bounds={"a": (0.0, 1.0), "b": (0.0, 1.0), "c": (0.0, 1.0)},
         )
         # Create correlated data so effective_dim < 3
-        points = [
-            {"a": 0.1 * i, "b": 0.1 * i + 0.01 * (i % 3), "c": 0.5}
-            for i in range(10)
-        ]
+        points = [{"a": 0.1 * i, "b": 0.1 * i + 0.01 * (i % 3), "c": 0.5} for i in range(10)]
         objectives = [(0.5 + 0.05 * i,) for i in range(10)]
         nav.update(points, objectives)
 

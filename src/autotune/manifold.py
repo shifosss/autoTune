@@ -361,8 +361,7 @@ class ManifoldNavigator:
             "covariance": [list(row) for row in state.covariance],
             "principal_components": [list(pc) for pc in state.principal_components],
             "all_eigenvectors": [
-                [float(v) for v in self._eigenvectors[:, j]]
-                for j in range(len(self._param_names))
+                [float(v) for v in self._eigenvectors[:, j]] for j in range(len(self._param_names))
             ],
             "eigenvalues": list(state.eigenvalues),
             "effective_dim": state.effective_dim,

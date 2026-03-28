@@ -223,10 +223,14 @@ class TestSubmit:
             main,
             [
                 "submit",
-                "--desc", "baseline LoRA",
-                "--theta", '{"lr": 2e-4, "rank": 16}',
-                "--task-score", "0.72",
-                "--cost", "1.5",
+                "--desc",
+                "baseline LoRA",
+                "--theta",
+                '{"lr": 2e-4, "rank": 16}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.5",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -241,11 +245,16 @@ class TestSubmit:
             main,
             [
                 "submit",
-                "--desc", "baseline",
-                "--theta", '{"lr": 2e-4, "rank": 16}',
-                "--task-score", "0.72",
-                "--cost", "1.5",
-                "--retention-score", "0.95",
+                "--desc",
+                "baseline",
+                "--theta",
+                '{"lr": 2e-4, "rank": 16}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.5",
+                "--retention-score",
+                "0.95",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -263,20 +272,28 @@ class TestSubmit:
             main,
             [
                 "submit",
-                "--desc", "first",
-                "--theta", '{"lr": 2e-4}',
-                "--task-score", "0.72",
-                "--cost", "1.0",
+                "--desc",
+                "first",
+                "--theta",
+                '{"lr": 2e-4}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.0",
             ],
         )
         result = runner.invoke(
             main,
             [
                 "submit",
-                "--desc", "second",
-                "--theta", '{"lr": 5e-4}',
-                "--task-score", "0.80",
-                "--cost", "1.2",
+                "--desc",
+                "second",
+                "--theta",
+                '{"lr": 5e-4}',
+                "--task-score",
+                "0.80",
+                "--cost",
+                "1.2",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -290,10 +307,14 @@ class TestSubmit:
             main,
             [
                 "submit",
-                "--desc", "test",
-                "--theta", '{"lr": 2e-4}',
-                "--task-score", "0.72",
-                "--cost", "1.0",
+                "--desc",
+                "test",
+                "--theta",
+                '{"lr": 2e-4}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.0",
             ],
         )
         from autotune.dag import ExperimentDAG
@@ -321,10 +342,14 @@ class TestSubmit:
             main,
             [
                 "submit",
-                "--desc", "base",
-                "--theta", '{"lr": 2e-4}',
-                "--task-score", "0.72",
-                "--cost", "1.0",
+                "--desc",
+                "base",
+                "--theta",
+                '{"lr": 2e-4}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.0",
             ],
         )
         # Propose a branch
@@ -332,10 +357,14 @@ class TestSubmit:
             main,
             [
                 "propose",
-                "--parents", "node_0001",
-                "--move", "branch",
-                "--desc", "increase lr",
-                "--theta", '{"lr": 5e-4}',
+                "--parents",
+                "node_0001",
+                "--move",
+                "branch",
+                "--desc",
+                "increase lr",
+                "--theta",
+                '{"lr": 5e-4}',
             ],
         )
         # Submit the proposed node to queue
@@ -354,10 +383,14 @@ class TestSubmit:
             main,
             [
                 "submit",
-                "--desc", "base",
-                "--theta", '{"lr": 2e-4}',
-                "--task-score", "0.72",
-                "--cost", "1.0",
+                "--desc",
+                "base",
+                "--theta",
+                '{"lr": 2e-4}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.0",
             ],
         )
         result = runner.invoke(main, ["submit", "--node", "node_9999"])
@@ -373,20 +406,28 @@ class TestPropose:
             main,
             [
                 "submit",
-                "--desc", "base",
-                "--theta", '{"lr": 2e-4}',
-                "--task-score", "0.72",
-                "--cost", "1.0",
+                "--desc",
+                "base",
+                "--theta",
+                '{"lr": 2e-4}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.0",
             ],
         )
         result = runner.invoke(
             main,
             [
                 "propose",
-                "--parents", "node_0001",
-                "--move", "branch",
-                "--desc", "increase lr",
-                "--theta", '{"lr": 5e-4}',
+                "--parents",
+                "node_0001",
+                "--move",
+                "branch",
+                "--desc",
+                "increase lr",
+                "--theta",
+                '{"lr": 5e-4}',
             ],
         )
         assert result.exit_code == 0, result.output
@@ -400,33 +441,48 @@ class TestPropose:
             main,
             [
                 "submit",
-                "--desc", "A",
-                "--theta", '{"lr": 2e-4}',
-                "--task-score", "0.72",
-                "--cost", "1.0",
+                "--desc",
+                "A",
+                "--theta",
+                '{"lr": 2e-4}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.0",
             ],
         )
         runner.invoke(
             main,
             [
                 "submit",
-                "--desc", "B",
-                "--theta", '{"lr": 5e-4}',
-                "--task-score", "0.80",
-                "--cost", "1.5",
+                "--desc",
+                "B",
+                "--theta",
+                '{"lr": 5e-4}',
+                "--task-score",
+                "0.80",
+                "--cost",
+                "1.5",
             ],
         )
         result = runner.invoke(
             main,
             [
                 "propose",
-                "--parents", "node_0001",
-                "--parents", "node_0002",
-                "--move", "merge",
-                "--desc", "merge A+B",
-                "--theta", '{"lr": 3.5e-4}',
-                "--merge-strategy", "weighted_avg",
-                "--merge-weights", "0.6,0.4",
+                "--parents",
+                "node_0001",
+                "--parents",
+                "node_0002",
+                "--move",
+                "merge",
+                "--desc",
+                "merge A+B",
+                "--theta",
+                '{"lr": 3.5e-4}',
+                "--merge-strategy",
+                "weighted_avg",
+                "--merge-weights",
+                "0.6,0.4",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -440,20 +496,28 @@ class TestPropose:
             main,
             [
                 "submit",
-                "--desc", "base",
-                "--theta", '{"lr": 2e-4}',
-                "--task-score", "0.72",
-                "--cost", "1.0",
+                "--desc",
+                "base",
+                "--theta",
+                '{"lr": 2e-4}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.0",
             ],
         )
         result = runner.invoke(
             main,
             [
                 "propose",
-                "--parents", "node_0001",
-                "--move", "invalid",
-                "--desc", "bad",
-                "--theta", '{"lr": 5e-4}',
+                "--parents",
+                "node_0001",
+                "--move",
+                "invalid",
+                "--desc",
+                "bad",
+                "--theta",
+                '{"lr": 5e-4}',
             ],
         )
         assert result.exit_code != 0
@@ -466,10 +530,14 @@ class TestPropose:
             main,
             [
                 "propose",
-                "--parents", "node_0001",
-                "--move", "branch",
-                "--desc", "test",
-                "--theta", '{"lr": 5e-4}',
+                "--parents",
+                "node_0001",
+                "--move",
+                "branch",
+                "--desc",
+                "test",
+                "--theta",
+                '{"lr": 5e-4}',
             ],
         )
         assert result.exit_code != 0
@@ -482,20 +550,28 @@ class TestPropose:
             main,
             [
                 "submit",
-                "--desc", "base",
-                "--theta", '{"lr": 2e-4}',
-                "--task-score", "0.72",
-                "--cost", "1.0",
+                "--desc",
+                "base",
+                "--theta",
+                '{"lr": 2e-4}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.0",
             ],
         )
         result = runner.invoke(
             main,
             [
                 "propose",
-                "--parents", "node_9999",
-                "--move", "branch",
-                "--desc", "test",
-                "--theta", '{"lr": 5e-4}',
+                "--parents",
+                "node_9999",
+                "--move",
+                "branch",
+                "--desc",
+                "test",
+                "--theta",
+                '{"lr": 5e-4}',
             ],
         )
         assert result.exit_code != 0
@@ -510,30 +586,42 @@ class TestRank:
             main,
             [
                 "submit",
-                "--desc", "base",
-                "--theta", '{"lr": 2e-4}',
-                "--task-score", "0.72",
-                "--cost", "1.0",
+                "--desc",
+                "base",
+                "--theta",
+                '{"lr": 2e-4}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.0",
             ],
         )
         runner.invoke(
             main,
             [
                 "propose",
-                "--parents", "node_0001",
-                "--move", "branch",
-                "--desc", "A",
-                "--theta", '{"lr": 3e-4}',
+                "--parents",
+                "node_0001",
+                "--move",
+                "branch",
+                "--desc",
+                "A",
+                "--theta",
+                '{"lr": 3e-4}',
             ],
         )
         runner.invoke(
             main,
             [
                 "propose",
-                "--parents", "node_0001",
-                "--move", "branch",
-                "--desc", "B",
-                "--theta", '{"lr": 5e-4}',
+                "--parents",
+                "node_0001",
+                "--move",
+                "branch",
+                "--desc",
+                "B",
+                "--theta",
+                '{"lr": 5e-4}',
             ],
         )
         result = runner.invoke(main, ["rank"])
@@ -556,10 +644,14 @@ class TestRank:
             main,
             [
                 "submit",
-                "--desc", "base",
-                "--theta", '{"lr": 2e-4}',
-                "--task-score", "0.72",
-                "--cost", "1.0",
+                "--desc",
+                "base",
+                "--theta",
+                '{"lr": 2e-4}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.0",
             ],
         )
         for i in range(3):
@@ -567,14 +659,20 @@ class TestRank:
                 main,
                 [
                     "propose",
-                    "--parents", "node_0001",
-                    "--move", "branch",
-                    "--desc", f"trial {i}",
-                    "--theta", f'{{"lr": {(i + 3) * 1e-4}}}',
+                    "--parents",
+                    "node_0001",
+                    "--move",
+                    "branch",
+                    "--desc",
+                    f"trial {i}",
+                    "--theta",
+                    f'{{"lr": {(i + 3) * 1e-4}}}',
                 ],
             )
         result = runner.invoke(main, ["rank", "--n", "1"])
         assert result.exit_code == 0, result.output
         # Output should have exactly 1 ranked entry (line with "1.")
-        ranked_lines = [l for l in result.output.strip().split("\n") if l.strip().startswith("1.")]
+        ranked_lines = [
+            line for line in result.output.strip().split("\n") if line.strip().startswith("1.")
+        ]
         assert len(ranked_lines) == 1

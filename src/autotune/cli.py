@@ -490,11 +490,7 @@ def propose(
             raise click.ClickException(f"Parent node {pid} not found in DAG.")
 
     technique_tags = tuple(t.strip() for t in techniques.split(",")) if techniques else ()
-    weights = (
-        tuple(float(w.strip()) for w in merge_weights.split(","))
-        if merge_weights
-        else None
-    )
+    weights = tuple(float(w.strip()) for w in merge_weights.split(",")) if merge_weights else None
 
     node = dag.add_proposed(
         parent_ids=parents,
@@ -535,8 +531,7 @@ def rank(n: int) -> None:
     for i, node in enumerate(ranked, 1):
         parents = ", ".join(node.parent_ids)
         click.echo(
-            f"{i}. {node.id} [{node.move_type}] from {parents} "
-            f"(potential={node.potential:.3f})"
+            f"{i}. {node.id} [{node.move_type}] from {parents} (potential={node.potential:.3f})"
         )
         if node.strategy_desc:
             click.echo(f"   {node.strategy_desc}")

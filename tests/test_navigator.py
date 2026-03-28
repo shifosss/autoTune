@@ -166,9 +166,7 @@ class TestMergeDangerZoneFilter:
         dag.recalculate_potential()
         # Place a large danger zone covering the midpoint of both nodes
         midpoint = manifold.project({"lr": 3.5e-4, "rank": 24})
-        forgetting.add_danger_zone(
-            center=midpoint, radius=10.0, cause="test", severity=0.5
-        )
+        forgetting.add_danger_zone(center=midpoint, radius=10.0, cause="test", severity=0.5)
         nav = StrategyNavigator(dag, manifold, forgetting)
         moves = nav.suggest_moves(n=10)
         merge_moves = [m for m in moves if m.move_type == "merge"]
