@@ -710,11 +710,18 @@ class TestCheckpoints:
 
         from autotune.dag import ExperimentDAG
         from autotune.types import ScoringConfig
+
         dag_path = project_dir / "autotune" / "dag.json"
         scoring = ScoringConfig(0.005, 0.01, -0.10)
         dag = ExperimentDAG.create(dag_path, scoring, objective_count=2)
-        dag.add_seed(theta={"lr": 1e-4}, description="a", techniques=(),
-                     composite=0.9, task_score=0.9, cost=1.0)
+        dag.add_seed(
+            theta={"lr": 1e-4},
+            description="a",
+            techniques=(),
+            composite=0.9,
+            task_score=0.9,
+            cost=1.0,
+        )
         dag._data["nodes"]["node_0001"]["pareto_rank"] = 3
         dag._data["nodes"]["node_0001"]["status"] = "discard"
         dag.save()

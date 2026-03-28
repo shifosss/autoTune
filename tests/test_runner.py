@@ -190,7 +190,10 @@ class TestMergeCheckpoints:
         state_b = {"w": np.array([3.0, 4.0])}
 
         mock_torch = types.ModuleType("torch")
-        load_map = {str(p_a / "pytorch_model.bin"): state_a, str(p_b / "pytorch_model.bin"): state_b}
+        load_map = {
+            str(p_a / "pytorch_model.bin"): state_a,
+            str(p_b / "pytorch_model.bin"): state_b,
+        }
         mock_torch.load = lambda path, **kw: load_map[str(path)]
         saved_state = {}
         mock_torch.save = lambda obj, path: saved_state.update({"obj": obj, "path": str(path)})
@@ -315,8 +318,11 @@ class TestGraftCheckpoint:
         runner = ExperimentRunner(project_repo)
         with pytest.raises(ImportError, match="torch"):
             runner.graft_checkpoint(
-                source_id="s", source_parent_id="sp", target_parent_id="tp",
-                checkpoint_store=project_repo, dest_path=project_repo / "out",
+                source_id="s",
+                source_parent_id="sp",
+                target_parent_id="tp",
+                checkpoint_store=project_repo,
+                dest_path=project_repo / "out",
             )
 
 

@@ -2,15 +2,13 @@
 
 import json
 import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from autotune.orchestrator import (
-    DEFAULT_TIMEOUT_HOURS,
+    ExperimentOrchestrator,
     GPUInfo,
-    RunningExperiment,
     query_gpus,
 )
 
@@ -34,13 +32,8 @@ class TestQueryGPUs:
         assert gpus[1].index == 1
 
     def test_returns_empty_on_failure(self, monkeypatch):
-        monkeypatch.setattr(
-            subprocess, "run", MagicMock(side_effect=FileNotFoundError)
-        )
+        monkeypatch.setattr(subprocess, "run", MagicMock(side_effect=FileNotFoundError))
         assert query_gpus() == []
-
-
-from autotune.orchestrator import ExperimentOrchestrator
 
 
 @pytest.fixture
@@ -49,7 +42,9 @@ def orch_project(tmp_path):
     repo = tmp_path / "project"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
-    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=repo, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@t.com"], cwd=repo, capture_output=True, check=True
+    )
     subprocess.run(["git", "config", "user.name", "T"], cwd=repo, capture_output=True, check=True)
     (repo / "train.py").write_text("print('train')")
     subprocess.run(["git", "add", "."], cwd=repo, capture_output=True, check=True)
@@ -61,16 +56,30 @@ def orch_project(tmp_path):
     config = {
         "run": {"script": "train.py", "checkpoint_format": "safetensors"},
         "retention": {"enabled": False},
-        "orchestrator": {"poll_interval": 10, "max_per_gpu": 1, "safety_margin_gb": 1.0,
-                         "default_timeout_hours": 4, "checkpoint_retention_layers": 2},
+        "orchestrator": {
+            "poll_interval": 10,
+            "max_per_gpu": 1,
+            "safety_margin_gb": 1.0,
+            "default_timeout_hours": 4,
+            "checkpoint_retention_layers": 2,
+        },
         "merge": {"default_strategy": "weighted_avg"},
-        "scoring": {"exploration_weight": 0.005, "diversity_weight": 0.01,
-                     "retention_cliff_threshold": -0.10},
+        "scoring": {
+            "exploration_weight": 0.005,
+            "diversity_weight": 0.01,
+            "retention_cliff_threshold": -0.10,
+        },
     }
     import yaml
+
     (at / "config.yaml").write_text(yaml.dump(config))
-    for d in ("orchestrator/queue", "orchestrator/running", "orchestrator/completed",
-              "orchestrator/archive", "orchestrator/checkpoints"):
+    for d in (
+        "orchestrator/queue",
+        "orchestrator/running",
+        "orchestrator/completed",
+        "orchestrator/archive",
+        "orchestrator/checkpoints",
+    ):
         (at / d).mkdir(parents=True)
     return repo
 
@@ -94,9 +103,12 @@ class TestOrchestratorInit:
         assert orch.archive_dir.is_dir()
         assert orch.checkpoint_store.is_dir()
 
-    @patch("autotune.orchestrator.query_gpus", return_value=[
-        GPUInfo(0, 24576, 20000, 30),
-    ])
+    @patch(
+        "autotune.orchestrator.query_gpus",
+        return_value=[
+            GPUInfo(0, 24576, 20000, 30),
+        ],
+    )
     def test_detects_gpus(self, mock_gpus, orch_project):
         orch = ExperimentOrchestrator(orch_project)
         assert 0 in orch.gpu_allocations
@@ -135,10 +147,13 @@ class TestOrphanRecovery:
 
 
 class TestScheduling:
-    @patch("autotune.orchestrator.query_gpus", return_value=[
-        GPUInfo(0, 24576, 20000, 30),
-        GPUInfo(1, 16384, 10000, 60),
-    ])
+    @patch(
+        "autotune.orchestrator.query_gpus",
+        return_value=[
+            GPUInfo(0, 24576, 20000, 30),
+            GPUInfo(1, 16384, 10000, 60),
+        ],
+    )
     def test_get_pending_sorted(self, mock_gpus, orch_project):
         orch = ExperimentOrchestrator(orch_project)
         spec_a = {"node_id": "a", "priority": 2, "submitted_at": "2026-03-28T01:00:00"}
@@ -148,10 +163,13 @@ class TestScheduling:
         pending = orch._get_pending()
         assert pending[0]["node_id"] == "b"  # lower priority number = higher priority
 
-    @patch("autotune.orchestrator.query_gpus", return_value=[
-        GPUInfo(0, 24576, 20000, 30),
-        GPUInfo(1, 16384, 14000, 10),
-    ])
+    @patch(
+        "autotune.orchestrator.query_gpus",
+        return_value=[
+            GPUInfo(0, 24576, 20000, 30),
+            GPUInfo(1, 16384, 14000, 10),
+        ],
+    )
     def test_find_best_gpu_tightest_fit(self, mock_gpus, orch_project):
         orch = ExperimentOrchestrator(orch_project)
         # GPU 0: 20000MB free = ~19.5GB, GPU 1: 14000MB = ~13.7GB
@@ -159,9 +177,12 @@ class TestScheduling:
         gpu = orch._find_best_gpu(10.0)
         assert gpu == 1
 
-    @patch("autotune.orchestrator.query_gpus", return_value=[
-        GPUInfo(0, 24576, 2048, 90),
-    ])
+    @patch(
+        "autotune.orchestrator.query_gpus",
+        return_value=[
+            GPUInfo(0, 24576, 2048, 90),
+        ],
+    )
     def test_find_best_gpu_none_when_full(self, mock_gpus, orch_project):
         orch = ExperimentOrchestrator(orch_project)
         # GPU 0: 2GB free, safety=1.0, schedulable=1.0. Need 5GB — won't fit.
@@ -193,16 +214,35 @@ class TestCheckpointPruning:
         # Create a DAG with that node at rank 2
         from autotune.dag import ExperimentDAG
         from autotune.types import ScoringConfig
+
         dag_path = orch_project / "autotune" / "dag.json"
         scoring = ScoringConfig(0.005, 0.01, -0.10)
         dag = ExperimentDAG.create(dag_path, scoring, objective_count=2)
         # Add 3 seeds so one gets rank 2
-        dag.add_seed(theta={"lr": 1e-4}, description="a", techniques=(),
-                     composite=0.9, task_score=0.9, cost=1.0)
-        dag.add_seed(theta={"lr": 2e-4}, description="b", techniques=(),
-                     composite=0.8, task_score=0.8, cost=0.5)
-        dag.add_seed(theta={"lr": 3e-4}, description="c", techniques=(),
-                     composite=0.5, task_score=0.5, cost=2.0)
+        dag.add_seed(
+            theta={"lr": 1e-4},
+            description="a",
+            techniques=(),
+            composite=0.9,
+            task_score=0.9,
+            cost=1.0,
+        )
+        dag.add_seed(
+            theta={"lr": 2e-4},
+            description="b",
+            techniques=(),
+            composite=0.8,
+            task_score=0.8,
+            cost=0.5,
+        )
+        dag.add_seed(
+            theta={"lr": 3e-4},
+            description="c",
+            techniques=(),
+            composite=0.5,
+            task_score=0.5,
+            cost=2.0,
+        )
         # Manually set node_0003 to rank 2 for deterministic test
         dag._data["nodes"]["node_0003"]["pareto_rank"] = 2
         dag._data["nodes"]["node_0003"]["status"] = "discard"

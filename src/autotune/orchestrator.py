@@ -10,7 +10,6 @@ import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -74,12 +73,14 @@ def query_gpus() -> list[GPUInfo]:
             if not line.strip():
                 continue
             parts = [p.strip() for p in line.split(",")]
-            gpus.append(GPUInfo(
-                index=int(parts[0]),
-                total_mb=int(parts[1]),
-                free_mb=int(parts[2]),
-                utilization=int(parts[3]),
-            ))
+            gpus.append(
+                GPUInfo(
+                    index=int(parts[0]),
+                    total_mb=int(parts[1]),
+                    free_mb=int(parts[2]),
+                    utilization=int(parts[3]),
+                )
+            )
         return gpus
     except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:
         logger.warning("nvidia-smi failed: %s", e)
@@ -153,8 +154,13 @@ class ExperimentOrchestrator:
             self.gpu_allocations[0] = []
 
         # Ensure directories exist
-        for d in (self.queue_dir, self.running_dir, self.completed_dir,
-                  self.archive_dir, self.checkpoint_store):
+        for d in (
+            self.queue_dir,
+            self.running_dir,
+            self.completed_dir,
+            self.archive_dir,
+            self.checkpoint_store,
+        ):
             d.mkdir(parents=True, exist_ok=True)
 
         self._load_state(recover=False)
@@ -180,14 +186,18 @@ class ExperimentOrchestrator:
             alloc_vram = sum(
                 self.running[nid].estimated_vram_gb for nid in alloc if nid in self.running
             )
-            gpu_details.append({
-                "index": gpu.index,
-                "total_mb": gpu.total_mb,
-                "free_mb": gpu.free_mb,
-                "schedulable_free_gb": round(gpu.free_gb - self.safety_margin_gb - alloc_vram, 2),
-                "running": alloc,
-                "utilization_pct": gpu.utilization,
-            })
+            gpu_details.append(
+                {
+                    "index": gpu.index,
+                    "total_mb": gpu.total_mb,
+                    "free_mb": gpu.free_mb,
+                    "schedulable_free_gb": round(
+                        gpu.free_gb - self.safety_margin_gb - alloc_vram, 2
+                    ),
+                    "running": alloc,
+                    "utilization_pct": gpu.utilization,
+                }
+            )
         state = {
             "last_updated": datetime.now(timezone.utc).isoformat(),
             "total_running": len(self.running),
@@ -294,8 +304,11 @@ class ExperimentOrchestrator:
             Path(queue_file).unlink()
 
         base_commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.project_root,
-            capture_output=True, text=True, check=True,
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.project_root,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
         try:
             wt_path = self.runner.create_worktree(base_commit, node_id)
@@ -314,17 +327,21 @@ class ExperimentOrchestrator:
                 )
                 strategy = spec.get("merge_strategy") or self.default_merge_strategy
                 self.runner.merge_checkpoints(
-                    parent_ids=tuple(parent_ids), weights=weights,
-                    strategy=strategy, checkpoint_store=self.checkpoint_store,
+                    parent_ids=tuple(parent_ids),
+                    weights=weights,
+                    strategy=strategy,
+                    checkpoint_store=self.checkpoint_store,
                     dest_path=parent_ckpt_dir,
                 )
             elif move_type == "graft" and len(parent_ids) >= 2:
                 parent_ckpt_dir.mkdir(parents=True, exist_ok=True)
                 source_parent = spec.get("graft_source_parent", parent_ids[0])
                 self.runner.graft_checkpoint(
-                    source_id=parent_ids[0], source_parent_id=source_parent,
+                    source_id=parent_ids[0],
+                    source_parent_id=source_parent,
                     target_parent_id=parent_ids[1],
-                    checkpoint_store=self.checkpoint_store, dest_path=parent_ckpt_dir,
+                    checkpoint_store=self.checkpoint_store,
+                    dest_path=parent_ckpt_dir,
                 )
         except ImportError as e:
             self._mark_crashed(node_id, spec, str(e))
@@ -361,7 +378,11 @@ class ExperimentOrchestrator:
 
         try:
             process = subprocess.Popen(
-                cmd, cwd=str(wt_path), stdout=log_fh, stderr=subprocess.STDOUT, env=env,
+                cmd,
+                cwd=str(wt_path),
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
+                env=env,
             )
         except OSError as e:
             log_fh.close()
@@ -372,9 +393,14 @@ class ExperimentOrchestrator:
         timeout_hours = spec.get("timeout_hours", self.default_timeout_hours)
         estimated_vram = spec.get("estimated_vram_gb", DEFAULT_VRAM_ESTIMATE_GB)
         exp = RunningExperiment(
-            id=node_id, spec=spec, gpu=gpu_id, process=process,
-            log_file=log_fh, log_path=log_path,
-            started_at=time.time(), timeout_at=time.time() + timeout_hours * 3600,
+            id=node_id,
+            spec=spec,
+            gpu=gpu_id,
+            process=process,
+            log_file=log_fh,
+            log_path=log_path,
+            started_at=time.time(),
+            timeout_at=time.time() + timeout_hours * 3600,
             estimated_vram_gb=estimated_vram,
         )
         self.running[node_id] = exp
@@ -484,6 +510,7 @@ class ExperimentOrchestrator:
         config_path = self.autotune_dir / "config.yaml"
         if config_path.exists():
             import yaml
+
             with open(config_path) as f:
                 config = yaml.safe_load(f) or {}
 
@@ -532,7 +559,8 @@ class ExperimentOrchestrator:
                 if cliff:
                     logger.warning(
                         "Forgetting cliff detected for %s: delta=%.3f",
-                        node_id, cliff.delta_retention,
+                        node_id,
+                        cliff.delta_retention,
                     )
                 forgetting.save(forgetting_path)
 
@@ -563,9 +591,9 @@ class ExperimentOrchestrator:
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         (archive_node / "result.json").write_text(json.dumps(completion, indent=2))
-        (archive_node / "spec.json").write_text(json.dumps(
-            {k: v for k, v in spec.items() if k != "_file"}, indent=2
-        ))
+        (archive_node / "spec.json").write_text(
+            json.dumps({k: v for k, v in spec.items() if k != "_file"}, indent=2)
+        )
         (self.completed_dir / f"{node_id}.json").write_text(json.dumps(completion, indent=2))
         logger.error("Marked %s as crashed: %s", node_id, error)
 
@@ -573,6 +601,7 @@ class ExperimentOrchestrator:
         """Delete checkpoints for nodes with pareto_rank >= retention_layers."""
         if dag is None:
             from autotune.dag import ExperimentDAG
+
             dag_path = self.autotune_dir / "dag.json"
             if not dag_path.exists():
                 return
@@ -587,7 +616,9 @@ class ExperimentOrchestrator:
 
     def _append_results_tsv(self, completion: dict) -> None:
         """Append a row to results.tsv."""
-        header = "node_id\ttask_score\tretention_score\tcost\tcomposite\tvram_mb\telapsed_min\tstatus\n"
+        header = (
+            "node_id\ttask_score\tretention_score\tcost\tcomposite\tvram_mb\telapsed_min\tstatus\n"
+        )
         if not self.results_tsv.exists() or self.results_tsv.stat().st_size == 0:
             self.results_tsv.write_text(header)
         metrics = completion.get("metrics", {})
@@ -632,7 +663,9 @@ class ExperimentOrchestrator:
         self.pid_file.write_text(str(os.getpid()))
         logger.info(
             "Orchestrator started (pid=%d, gpus=%s, poll=%ds)",
-            os.getpid(), list(self.gpu_allocations.keys()), self.poll_interval,
+            os.getpid(),
+            list(self.gpu_allocations.keys()),
+            self.poll_interval,
         )
 
         try:
