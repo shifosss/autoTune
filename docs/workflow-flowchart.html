@@ -1,0 +1,2037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>autoTune Workflow &amp; Mathematical Reference</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]});"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #bc8cff;
+    --green: #3fb950;
+    --red: #f85149;
+    --orange: #d29922;
+    --teal: #39d2c0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    line-height: 1.6;
+  }
+
+  /* --- Sidebar --- */
+  nav {
+    position: fixed;
+    top: 0; left: 0;
+    width: 280px;
+    height: 100vh;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 24px 0;
+    z-index: 100;
+  }
+
+  nav h1 {
+    font-size: 16px;
+    padding: 0 20px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--accent);
+    letter-spacing: 0.5px;
+  }
+
+  nav .nav-group {
+    padding: 12px 0 0;
+  }
+
+  nav .nav-group-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    padding: 0 20px 6px;
+  }
+
+  nav a {
+    display: block;
+    padding: 6px 20px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 13px;
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+  }
+
+  nav a:hover, nav a.active {
+    color: var(--text);
+    background: var(--surface2);
+    border-left-color: var(--accent);
+  }
+
+  /* --- Main --- */
+  main {
+    margin-left: 280px;
+    padding: 40px 60px;
+    max-width: 1100px;
+    width: calc(100% - 280px);
+  }
+
+  section {
+    margin-bottom: 64px;
+    scroll-margin-top: 24px;
+  }
+
+  h2 {
+    font-size: 28px;
+    margin-bottom: 8px;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+  }
+
+  h2 .badge {
+    font-size: 11px;
+    background: var(--accent2);
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 10px;
+    vertical-align: middle;
+    margin-left: 8px;
+    font-weight: 500;
+  }
+
+  h3 {
+    font-size: 20px;
+    margin: 28px 0 12px;
+    color: var(--accent);
+  }
+
+  h4 {
+    font-size: 16px;
+    margin: 20px 0 8px;
+    color: var(--teal);
+  }
+
+  p, li { color: var(--text); font-size: 15px; }
+  p { margin-bottom: 12px; }
+
+  ul, ol { margin: 0 0 16px 24px; }
+  li { margin-bottom: 4px; }
+
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+
+  /* --- Diagrams --- */
+  .diagram-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin: 16px 0 24px;
+    overflow-x: auto;
+  }
+
+  .diagram-container .mermaid {
+    display: flex;
+    justify-content: center;
+  }
+
+  /* --- Math blocks --- */
+  .math-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 16px 0;
+    overflow-x: auto;
+  }
+
+  .math-block .label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--accent2);
+    margin-bottom: 8px;
+  }
+
+  /* --- Code --- */
+  code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    background: var(--surface2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--teal);
+  }
+
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    margin: 12px 0 16px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  pre code {
+    background: none;
+    padding: 0;
+    color: var(--text);
+  }
+
+  /* --- Tables --- */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
+    font-size: 14px;
+  }
+
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  td {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  tr:hover td { background: rgba(88,166,255,0.04); }
+
+  /* --- Struct cards --- */
+  .struct-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 16px 0;
+  }
+
+  .struct-card .name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+    font-family: 'SF Mono', monospace;
+    margin-bottom: 4px;
+  }
+
+  .struct-card .desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+
+  .struct-card .field {
+    display: flex;
+    padding: 4px 0;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(48,54,61,0.5);
+  }
+
+  .struct-card .field:last-child { border-bottom: none; }
+
+  .struct-card .field-name {
+    font-family: 'SF Mono', monospace;
+    color: var(--teal);
+    min-width: 200px;
+  }
+
+  .struct-card .field-type {
+    color: var(--accent2);
+    min-width: 180px;
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+  }
+
+  .struct-card .field-desc {
+    color: var(--text-muted);
+  }
+
+  /* --- Collapsible --- */
+  details {
+    margin: 12px 0;
+  }
+
+  details summary {
+    cursor: pointer;
+    padding: 10px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-weight: 600;
+    color: var(--accent);
+    font-size: 14px;
+    user-select: none;
+  }
+
+  details[open] summary {
+    border-radius: 6px 6px 0 0;
+    border-bottom-color: transparent;
+  }
+
+  details .content {
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    background: var(--surface);
+  }
+
+  /* --- Legend --- */
+  .legend {
+    display: flex;
+    gap: 20px;
+    margin: 12px 0;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  /* --- KaTeX overrides --- */
+  .katex { color: var(--text); }
+
+  /* Mermaid theme */
+  .mermaid svg { max-width: 100%; }
+
+  /* file tree */
+  .file-tree {
+    font-family: 'SF Mono', monospace;
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--text-muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 12px 0;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .file-tree .dir { color: var(--accent); }
+  .file-tree .file { color: var(--text); }
+  .file-tree .comment { color: var(--text-muted); font-style: italic; }
+
+  /* --- Example annotations --- */
+  .example-annotation {
+    display: flex;
+    gap: 12px;
+    margin: 8px 0;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+  }
+
+  .example-annotation.warn {
+    border-left-color: var(--orange);
+  }
+
+  .example-annotation.danger {
+    border-left-color: var(--red);
+  }
+
+  .example-annotation .tag {
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    padding-top: 1px;
+  }
+
+  .node-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
+    font-size: 13px;
+  }
+
+  .node-table th {
+    font-size: 11px;
+    padding: 8px 10px;
+  }
+
+  .node-table td {
+    padding: 6px 10px;
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+  }
+
+  .node-table .rank0 { color: var(--green); }
+  .node-table .rank1 { color: var(--orange); }
+  .node-table .rank2 { color: var(--red); }
+  .node-table .pending { color: var(--text-muted); font-style: italic; }
+
+  .manifold-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+  }
+
+  .manifold-grid .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .manifold-grid .panel h4 {
+    margin-top: 0;
+  }
+
+  .manifold-viz {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 12px 0;
+  }
+
+  .manifold-viz canvas {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ==================== SIDEBAR ==================== -->
+<nav>
+  <h1>autoTune Reference</h1>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Worked Examples</div>
+    <a href="#example-dag">Example DAG</a>
+    <a href="#example-manifold">Example Manifold</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Workflow Flowcharts</div>
+    <a href="#overview">System Overview</a>
+    <a href="#cli-map">CLI Command Map</a>
+    <a href="#state-machine">DAGNode State Machine</a>
+    <a href="#orch-loop">Orchestrator Main Loop</a>
+    <a href="#launch-seq">Experiment Launch</a>
+    <a href="#completion">Completion &amp; Intelligence</a>
+    <a href="#suggest-pipeline">Suggestion Pipeline</a>
+    <a href="#sequence">Full Sequence Diagram</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Mathematical Detail</div>
+    <a href="#pareto">NSGA-II Pareto Ranking</a>
+    <a href="#dag-ucb">DAG-UCB Potential Scoring</a>
+    <a href="#cma-es">CMA-ES Manifold Learning</a>
+    <a href="#forgetting-math">Forgetting Detection</a>
+    <a href="#scoring">Branch &amp; Merge Scoring</a>
+    <a href="#checkpoint-math">Checkpoint Operations</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Data Structures</div>
+    <a href="#types">Frozen Dataclasses</a>
+    <a href="#file-layout">File System Layout</a>
+    <a href="#env-contract">Environment Contract</a>
+    <a href="#deps">Module Dependencies</a>
+  </div>
+</nav>
+
+<!-- ==================== MAIN CONTENT ==================== -->
+<main>
+
+<!-- ======================================================================= -->
+<!-- ==================== WORKED EXAMPLES ================================= -->
+<!-- ======================================================================= -->
+
+<!-- ===== EXAMPLE DAG ===== -->
+<section id="example-dag">
+  <h2>Example DAG</h2>
+  <p class="subtitle">A realistic 10-node experiment DAG showing seeds, branches, a merge, a graft, a forgetting cliff, and Pareto stratification.</p>
+
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    N1(["<b>node_0001</b> (seed)\nlr=2e-4, rank=16\ntask=0.78 ret=0.95 cost=1.0\ncomposite=0.78\n<i>rank 0 &bull; keep</i>"]):::rank0
+
+    N2(["<b>node_0002</b> (seed)\nlr=5e-4, rank=32\ntask=0.82 ret=0.93 cost=1.4\ncomposite=0.82\n<i>rank 0 &bull; keep</i>"]):::rank0
+
+    N3(["<b>node_0003</b> (branch)\nlr=1e-3, rank=32\ntask=0.85 ret=0.84 cost=1.5\ncomposite=0.85\n<i>rank 0 &bull; keep</i>"]):::rank0
+
+    N4(["<b>node_0004</b> (branch)\nlr=2e-4, rank=64\ntask=0.80 ret=0.96 cost=2.1\ncomposite=0.80\n<i>rank 1 &bull; keep</i>"]):::rank1
+
+    N5(["<b>node_0005</b> (branch)\nlr=2e-3, rank=32\ntask=0.83 ret=0.71 cost=1.5\ncomposite=0.76\n<i>rank 2 &bull; discard</i>\n&loz; FORGETTING CLIFF &delta;=-0.22"]):::cliff
+
+    N6(["<b>node_0006</b> (merge)\nlr=6e-4, rank=32\ntask=0.87 ret=0.90 cost=1.8\ncomposite=0.87\n<i>rank 0 &bull; keep</i>"]):::rank0
+
+    N7(["<b>node_0007</b> (branch)\nlr=8e-4, rank=48\ntask=0.84 ret=0.88 cost=1.9\ncomposite=0.84\n<i>rank 1 &bull; keep</i>"]):::rank1
+
+    N8(["<b>node_0008</b> (graft)\nlr=6e-4, rank=64\ntask=0.88 ret=0.89 cost=2.2\ncomposite=0.88\n<i>rank 0 &bull; keep</i>"]):::rank0
+
+    N9(["<b>node_0009</b> (branch)\nlr=7e-4, rank=32\ntask=0.81 ret=0.91 cost=1.7\ncomposite=0.81\n<i>rank 2 &bull; discard</i>"]):::rank2
+
+    N10(["<b>node_0010</b> (proposed)\nlr=5e-4, rank=48\n<i>status: pending</i>"]):::proposed
+
+    N1 -->|branch| N3
+    N1 -->|branch| N4
+    N2 -->|branch| N5
+    N1 -->|merge| N6
+    N2 -->|merge| N6
+    N3 -->|branch| N7
+    N3 -->|graft: &delta; from N4| N8
+    N4 -.->|graft source parent| N8
+    N6 -->|branch| N9
+    N8 -->|branch| N10
+
+    classDef rank0 fill:#0d3322,stroke:#3fb950,color:#3fb950
+    classDef rank1 fill:#3a3300,stroke:#d29922,color:#d29922
+    classDef rank2 fill:#2d1520,stroke:#f85149,color:#f85149
+    classDef cliff fill:#3a1010,stroke:#ff6b6b,color:#ff6b6b
+    classDef proposed fill:#1c2333,stroke:#8b949e,color:#8b949e
+    </pre>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div> Rank 0 (Pareto-optimal, keep)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#d29922"></div> Rank 1 (near-front, keep)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div> Rank 2+ (dominated, discard)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#8b949e"></div> Proposed (pending)</div>
+  </div>
+
+  <h3>Node Table</h3>
+  <table class="node-table">
+    <thead>
+      <tr><th>Node</th><th>Move</th><th>Parents</th><th>Task</th><th>Retention</th><th>Cost</th><th>Composite</th><th>Rank</th><th>Potential</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>node_0001</td><td>seed</td><td>&mdash;</td><td>0.78</td><td>0.95</td><td>1.0</td><td>0.78</td><td class="rank0">0</td><td>1.12</td><td>keep</td></tr>
+      <tr><td>node_0002</td><td>seed</td><td>&mdash;</td><td>0.82</td><td>0.93</td><td>1.4</td><td>0.82</td><td class="rank0">0</td><td>1.06</td><td>keep</td></tr>
+      <tr><td>node_0003</td><td>branch</td><td>0001</td><td>0.85</td><td>0.84</td><td>1.5</td><td>0.85</td><td class="rank0">0</td><td>1.18</td><td>keep</td></tr>
+      <tr><td>node_0004</td><td>branch</td><td>0001</td><td>0.80</td><td>0.96</td><td>2.1</td><td>0.80</td><td class="rank1">1</td><td>0.94</td><td>keep</td></tr>
+      <tr><td>node_0005</td><td>branch</td><td>0002</td><td>0.83</td><td style="color:#f85149">0.71</td><td>1.5</td><td>0.76</td><td class="rank2">2</td><td>0.27</td><td>discard</td></tr>
+      <tr><td>node_0006</td><td>merge</td><td>0001+0002</td><td>0.87</td><td>0.90</td><td>1.8</td><td>0.87</td><td class="rank0">0</td><td>1.21</td><td>keep</td></tr>
+      <tr><td>node_0007</td><td>branch</td><td>0003</td><td>0.84</td><td>0.88</td><td>1.9</td><td>0.84</td><td class="rank1">1</td><td>0.98</td><td>keep</td></tr>
+      <tr><td>node_0008</td><td>graft</td><td>0003+0004</td><td>0.88</td><td>0.89</td><td>2.2</td><td>0.88</td><td class="rank0">0</td><td>1.24</td><td>keep</td></tr>
+      <tr><td>node_0009</td><td>branch</td><td>0006</td><td>0.81</td><td>0.91</td><td>1.7</td><td>0.81</td><td class="rank2">2</td><td>0.58</td><td>discard</td></tr>
+      <tr><td>node_0010</td><td>branch</td><td>0008</td><td class="pending">&mdash;</td><td class="pending">&mdash;</td><td class="pending">&mdash;</td><td class="pending">&mdash;</td><td class="pending">&mdash;</td><td class="pending">1.24</td><td class="pending">pending</td></tr>
+    </tbody>
+  </table>
+
+  <h3>What the DAG Shows</h3>
+
+  <div class="example-annotation">
+    <span class="tag" style="color:var(--green)">Seeds</span>
+    <span>node_0001 and node_0002 are independent baselines with different hyperparameter configurations. Both are Pareto-optimal (rank 0) because they trade off differently: 0001 has better retention+cost, 0002 has better task score.</span>
+  </div>
+
+  <div class="example-annotation">
+    <span class="tag" style="color:var(--accent)">Branch</span>
+    <span>node_0003 branches from 0001 with an aggressive LR increase (2e-4 &rarr; 1e-3). Task score jumps from 0.78 to 0.85, but retention drops from 0.95 to 0.84. Still rank 0 because task gain outweighs retention loss in Pareto terms.</span>
+  </div>
+
+  <div class="example-annotation danger">
+    <span class="tag" style="color:var(--red)">Cliff</span>
+    <span>node_0005 branches from 0002 with LR=2e-3. Retention crashes from 0.93 to 0.71 (&delta;=-0.22, below threshold -0.10). A DangerZone is created around its manifold coordinates. Future proposals near this region are blocked. Its potential is halved by the health penalty (0.76 &times; 0.5 &times; exploration).</span>
+  </div>
+
+  <div class="example-annotation">
+    <span class="tag" style="color:var(--accent2)">Merge</span>
+    <span>node_0006 merges 0001 and 0002 with weighted_avg (0.5/0.5). The merged checkpoint inherits knowledge from both parents. Result: best task score so far (0.87) with reasonable retention (0.90). Rank 0.</span>
+  </div>
+
+  <div class="example-annotation warn">
+    <span class="tag" style="color:var(--orange)">Graft</span>
+    <span>node_0008 grafts the "technique delta" from 0004 (high-rank LoRA) onto 0003 (high-LR branch). Graft math: &delta; = 0004 - 0001, grafted = 0003 + &delta;. Achieves the best composite (0.88) by combining orthogonal improvements.</span>
+  </div>
+
+  <div class="example-annotation">
+    <span class="tag" style="color:var(--text-muted)">Dominated</span>
+    <span>node_0009 is rank 2 (dominated) because node_0006 beats it on task (0.87 vs 0.81) and node_0004 beats it on retention (0.96 vs 0.91). Its checkpoint gets pruned. node_0005 is also rank 2, dominated by multiple nodes on every objective.</span>
+  </div>
+
+  <h3>Pareto Fronts Visualized</h3>
+  <p class="subtitle">The same nodes plotted in 2D objective space (task vs retention). Cost is the third axis, omitted for clarity.</p>
+
+  <div class="diagram-container">
+    <pre class="mermaid">
+quadrantChart
+    title Task Score vs Retention Score
+    x-axis "Low Task" --> "High Task"
+    y-axis "Low Retention" --> "High Retention"
+    quadrant-1 "Best: high task + retention"
+    quadrant-2 "Conservative: high retention"
+    quadrant-3 "Poor: low on both"
+    quadrant-4 "Aggressive: high task only"
+    "0001 (seed)": [0.50, 0.92]
+    "0002 (seed)": [0.62, 0.88]
+    "0003 (branch)": [0.72, 0.72]
+    "0004 (branch)": [0.56, 0.94]
+    "0005 CLIFF": [0.66, 0.36]
+    "0006 (merge)": [0.82, 0.82]
+    "0007 (branch)": [0.68, 0.78]
+    "0008 (graft)": [0.86, 0.80]
+    "0009 (branch)": [0.58, 0.84]
+    </pre>
+  </div>
+
+  <h3>DAG-UCB Potential Walkthrough</h3>
+  <p>With <code>exploration_weight=0.5</code>, <code>N=9</code> executed, <code>cliff_threshold=-0.10</code>:</p>
+
+  <div class="math-block">
+    <div class="label">node_0008 (best composite, 1 child)</div>
+    $$\text{potential}_{0008} = \bigl(0.88 + 0.5 \times \sqrt{\tfrac{\ln 9}{1+1}}\bigr) \times 0.89 = (0.88 + 0.52) \times 0.89 = 1.24$$
+  </div>
+
+  <div class="math-block">
+    <div class="label">node_0005 (cliff, retention below threshold)</div>
+    $$\text{potential}_{0005} = \bigl(0.76 + 0.5 \times \sqrt{\tfrac{\ln 9}{1+0}}\bigr) \times (0.71 \times 0.5) = (0.76 + 0.74) \times 0.355 = 0.53$$
+    <p>The &times;0.5 health penalty and low retention (0.71) slash the potential by more than half compared to a similar composite without forgetting.</p>
+  </div>
+
+  <div class="math-block">
+    <div class="label">node_0001 (seed, 3 children &mdash; heavily explored)</div>
+    $$\text{potential}_{0001} = \bigl(0.78 + 0.5 \times \sqrt{\tfrac{\ln 9}{1+3}}\bigr) \times 0.95 = (0.78 + 0.37) \times 0.95 = 1.09$$
+    <p>Despite being a lower-composite seed, decent retention (0.95) and moderate exploration bonus keep it viable. But 3 children reduce the bonus significantly.</p>
+  </div>
+</section>
+
+<!-- ===== EXAMPLE MANIFOLD ===== -->
+<section id="example-manifold">
+  <h2>Example Manifold</h2>
+  <p class="subtitle">Walkthrough of CMA-ES learning on the example DAG's 9 evaluated hyperparameter vectors, with a 3-parameter space (lr, rank, warmup_ratio).</p>
+
+  <h3>Raw Parameter Vectors</h3>
+  <table class="node-table">
+    <thead>
+      <tr><th>Node</th><th>lr</th><th>rank</th><th>warmup_ratio</th><th>Composite</th><th>Elite?</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0008</td><td>6e-4</td><td>64</td><td>0.08</td><td>0.88</td><td style="color:var(--green)">Yes (1)</td></tr>
+      <tr><td>0006</td><td>6e-4</td><td>32</td><td>0.06</td><td>0.87</td><td style="color:var(--green)">Yes (2)</td></tr>
+      <tr><td>0003</td><td>1e-3</td><td>32</td><td>0.05</td><td>0.85</td><td style="color:var(--green)">Yes (3)</td></tr>
+      <tr><td>0007</td><td>8e-4</td><td>48</td><td>0.07</td><td>0.84</td><td style="color:var(--green)">Yes (4)</td></tr>
+      <tr><td>0005</td><td>2e-3</td><td>32</td><td>0.04</td><td>0.76</td><td style="color:var(--text-muted)">No</td></tr>
+      <tr><td>0002</td><td>5e-4</td><td>32</td><td>0.06</td><td>0.82</td><td style="color:var(--text-muted)">No</td></tr>
+      <tr><td>0009</td><td>7e-4</td><td>32</td><td>0.06</td><td>0.81</td><td style="color:var(--text-muted)">No</td></tr>
+      <tr><td>0004</td><td>2e-4</td><td>64</td><td>0.10</td><td>0.80</td><td style="color:var(--text-muted)">No</td></tr>
+      <tr><td>0001</td><td>2e-4</td><td>16</td><td>0.05</td><td>0.78</td><td style="color:var(--text-muted)">No</td></tr>
+    </tbody>
+  </table>
+
+  <div class="example-annotation">
+    <span class="tag" style="color:var(--accent2)">Elite</span>
+    <span>Top &mu;=4 (50% of 9) are selected. Weights: w&sub1;=0.43, w&sub2;=0.30, w&sub3;=0.18, w&sub4;=0.09 (log-decay).</span>
+  </div>
+
+  <h3>Step 1: Normalization</h3>
+  <div class="math-block">
+    <div class="label">Config Bounds</div>
+    <p>From <code>config.yaml</code>: lr &isin; [1e-5, 5e-3], rank &isin; [4, 128], warmup_ratio &isin; [0.0, 0.2]</p>
+    $$\hat{\text{lr}} = \frac{\text{lr} - 1\text{e-5}}{5\text{e-3} - 1\text{e-5}} \qquad \hat{\text{rank}} = \frac{\text{rank} - 4}{128 - 4} \qquad \hat{\text{warmup}} = \frac{\text{warmup}}{0.2}$$
+    <p>Example: node_0008 (lr=6e-4, rank=64, warmup=0.08) &rarr; (0.118, 0.484, 0.40)</p>
+  </div>
+
+  <h3>Step 2: Weighted Mean</h3>
+  <div class="math-block">
+    <div class="label">Centroid of Elite Points</div>
+    $$\boldsymbol{\mu} = 0.43 \times \hat{\theta}_{0008} + 0.30 \times \hat{\theta}_{0006} + 0.18 \times \hat{\theta}_{0003} + 0.09 \times \hat{\theta}_{0007}$$
+    $$\approx (0.151,\ 0.412,\ 0.335)$$
+    <p>The centroid is pulled toward the best performers. Note how it's biased toward moderate lr and moderate-to-high rank.</p>
+  </div>
+
+  <h3>Step 3: Covariance &amp; Eigendecomposition</h3>
+  <div class="math-block">
+    <div class="label">Learned Covariance (after blending)</div>
+    $$\boldsymbol{C} = \begin{pmatrix} 0.0082 & 0.0051 & -0.0012 \\ 0.0051 & 0.0194 & 0.0038 \\ -0.0012 & 0.0038 & 0.0029 \end{pmatrix}$$
+    <p>Key observation: <strong>lr and rank are positively correlated</strong> (off-diagonal 0.0051 > 0). When one increases, the other tends to as well in successful experiments.</p>
+    <p>warmup_ratio has low variance (0.0029) &mdash; it matters less.</p>
+  </div>
+
+  <div class="math-block">
+    <div class="label">Eigendecomposition Result</div>
+    <table class="node-table">
+      <thead><tr><th>PC</th><th>&lambda;</th><th>Variance %</th><th>Cumulative %</th><th>Interpretation</th></tr></thead>
+      <tbody>
+        <tr><td>PC1</td><td>0.0231</td><td>75.7%</td><td>75.7%</td><td><b>Capacity axis</b>: lr&uarr; + rank&uarr; together</td></tr>
+        <tr><td>PC2</td><td>0.0058</td><td>19.0%</td><td>94.7%</td><td><b>Trade-off axis</b>: lr&uarr; but rank&darr;</td></tr>
+        <tr><td>PC3</td><td>0.0016</td><td>5.3%</td><td>100%</td><td>warmup_ratio (noise)</td></tr>
+      </tbody>
+    </table>
+    $$d_{\text{eff}} = 2 \quad \text{(PC1+PC2 capture 94.7% &ge; 95% threshold, rounded up)}$$
+  </div>
+
+  <h3>Eigenvector Loadings (Principal Components)</h3>
+  <div class="math-block">
+    <div class="label">What Each PC Means in Parameter Space</div>
+    <table class="node-table">
+      <thead><tr><th>Parameter</th><th>PC1 Loading</th><th>PC2 Loading</th><th>Importance</th></tr></thead>
+      <tbody>
+        <tr><td>lr</td><td style="color:var(--green)">+0.42</td><td style="color:var(--green)">+0.87</td><td>0.48</td></tr>
+        <tr><td>rank</td><td style="color:var(--green)">+0.89</td><td style="color:var(--red)">-0.38</td><td>0.41</td></tr>
+        <tr><td>warmup_ratio</td><td style="color:var(--green)">+0.18</td><td style="color:var(--green)">+0.31</td><td>0.11</td></tr>
+      </tbody>
+    </table>
+    <p><strong>PC1</strong> (75.7% variance): Moving along PC1 increases both lr and rank simultaneously. This is the "capacity" direction &mdash; the manifold has learned that model capacity (rank) and learning rate scale together in successful experiments.</p>
+    <p><strong>PC2</strong> (19.0% variance): Moving along PC2 increases lr but <em>decreases</em> rank. This is the "efficiency" direction &mdash; trading parameter count for learning speed.</p>
+    <p><strong>Importance</strong>: lr (0.48) and rank (0.41) dominate; warmup_ratio (0.11) contributes little.</p>
+  </div>
+
+  <h3>Proposal Generation Example</h3>
+  <div class="math-block">
+    <div class="label">propose_direction(from_theta=node_0006.theta)</div>
+    <p>Suppose PC1 is sampled (probability &prop; &lambda;&sub1; = 0.0231):</p>
+    $$\hat{\theta}_{0006} = (0.118,\ 0.226,\ 0.30)$$
+    $$\hat{\theta}_{\text{new}} = \text{clip}\bigl((0.118,\ 0.226,\ 0.30) + 0.12 \times (0.42,\ 0.89,\ 0.18),\ 0,\ 1\bigr)$$
+    $$= \text{clip}\bigl((0.168,\ 0.333,\ 0.322),\ 0,\ 1\bigr) = (0.168,\ 0.333,\ 0.322)$$
+    <p>Denormalized: lr &asymp; 8.4e-4, rank &asymp; 45, warmup &asymp; 0.064</p>
+    <p>The proposal moves <em>along the learned correlation</em>: both lr and rank increase together, which the manifold has learned tends to improve performance.</p>
+  </div>
+
+  <h3>Danger Zone Interaction</h3>
+  <div class="math-block">
+    <div class="label">node_0005's Danger Zone</div>
+    <p>node_0005 caused a cliff at manifold coordinates:</p>
+    $$\mathbf{z}_{0005} = \mathbf{V}_{:2}^\top (\hat{\theta}_{0005} - \boldsymbol{\mu}) \approx (0.41,\ 0.83)$$
+    $$r_{0005} = |\delta| \times s = 0.22 \times 0.5 = 0.11$$
+    <p>Any future proposal whose projection falls within distance 0.11 of (0.41, 0.83) is <strong>blocked</strong>.</p>
+    <p>This effectively prevents proposals with very high lr (~2e-3) and moderate rank (~32) &mdash; exactly the configuration that caused catastrophic forgetting.</p>
+  </div>
+
+  <h3>Manifold Projection Visualization</h3>
+  <p class="subtitle">All 9 evaluated nodes projected onto PC1 vs PC2, with the danger zone shown as a red exclusion circle.</p>
+
+  <div class="diagram-container" id="manifold-canvas-container">
+    <canvas id="manifold-canvas" width="700" height="500"></canvas>
+    <div style="display:flex; gap:16px; margin-top:12px; font-size:12px; color:var(--text-muted); flex-wrap:wrap;">
+      <span><span style="color:#3fb950">&FilledSmallSquare;</span> Rank 0</span>
+      <span><span style="color:#d29922">&FilledSmallSquare;</span> Rank 1</span>
+      <span><span style="color:#f85149">&FilledSmallSquare;</span> Rank 2</span>
+      <span><span style="color:rgba(248,81,73,0.15)">&FilledSmallSquare;</span> Danger zone</span>
+      <span><span style="color:#58a6ff">&#10230;</span> PC1 (capacity)</span>
+      <span><span style="color:#bc8cff">&#10230;</span> PC2 (efficiency)</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== OVERVIEW ===== -->
+<section id="overview">
+  <h2>System Overview</h2>
+  <p class="subtitle">End-to-end experiment lifecycle: agent submits seeds, proposes experiments, orchestrator executes, intelligence updates guide next iteration.</p>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#58a6ff"></div> Agent CLI commands</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ff9f43"></div> Orchestrator daemon (autonomous)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#bc8cff"></div> Intelligence update</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div> Decision point</div>
+  </div>
+
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    A["<b>autotune init</b><br/>Create overlay directory"]:::cli --> B["Agent writes training script<br/>(loads parent, saves checkpoint, writes result.json)"]
+    B --> C["<b>autotune submit --theta {&mldr;}</b><br/>Register seed experiment"]:::cli
+
+    C --> D["DAG.add_seed()"]
+    D --> E["rerank_pareto() + recalculate_potential()"]:::intel
+    E --> F{"Enough seeds?<br/>(2-3 baselines)"}:::decision
+    F -- No --> B
+    F -- Yes --> G["<b>autotune suggest --n 5</b><br/>Get ranked move proposals"]:::cli
+
+    G --> H["Agent analyzes:<br/>frontier + manifold + technique stats"]
+    H --> I["Agent forms hypothesis<br/>+ edits training code"]
+    I --> J["<b>autotune propose</b><br/>--parents ... --move ... --theta {&mldr;}"]:::cli
+    J --> K["DAG.add_proposed() + recalculate_potential()"]
+
+    K --> L["<b>autotune submit --node id</b><br/>Queue for execution"]:::cli
+    L --> M["Write queue/&lt;id&gt;.json"]
+
+    M --> N["Orchestrator tick() picks up"]:::orch
+    N --> O["GPU scheduling + _launch()"]:::orch
+    O --> P["Training runs in<br/>isolated git worktree"]:::orch
+    P --> Q["_handle_completion()"]:::orch
+    Q --> R["Post-completion intelligence:<br/>Pareto + Manifold + Forgetting"]:::intel
+
+    R --> S{"Agent done?"}:::decision
+    S -- "Next iteration" --> G
+    S -- "Done" --> T["<b>autotune frontier</b><br/>Final Pareto front"]:::cli
+    T --> U["<b>autotune checkpoints --prune</b>"]:::cli
+
+    classDef cli fill:#1a3a5c,stroke:#58a6ff,color:#58a6ff
+    classDef orch fill:#3d2800,stroke:#ff9f43,color:#ff9f43
+    classDef intel fill:#2d1f4e,stroke:#bc8cff,color:#bc8cff
+    classDef decision fill:#1a3320,stroke:#3fb950,color:#3fb950
+    </pre>
+  </div>
+</section>
+
+<!-- ===== CLI MAP ===== -->
+<section id="cli-map">
+  <h2>CLI Command Map</h2>
+  <p class="subtitle">All 15 Click CLI entry points grouped by purpose.</p>
+
+  <table>
+    <thead>
+      <tr><th>Command</th><th>Category</th><th>Triggers</th><th>Writes</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>autotune init</code></td><td>Setup</td><td>Creates autotune/ overlay with templates</td><td>config.yaml, dag.json, manifold_state.json, forgetting.json</td></tr>
+      <tr><td><code>autotune submit --theta {}</code></td><td>Creation</td><td>DAG.add_seed() + rerank + recalculate</td><td>dag.json</td></tr>
+      <tr><td><code>autotune propose --parents ...</code></td><td>Creation</td><td>DAG.add_proposed() + recalculate_potential()</td><td>dag.json</td></tr>
+      <tr><td><code>autotune submit --node id</code></td><td>Creation</td><td>Writes experiment spec to queue</td><td>queue/&lt;id&gt;.json</td></tr>
+      <tr><td><code>autotune suggest --n 5</code></td><td>Intelligence</td><td>StrategyNavigator.suggest_moves()</td><td>(stdout only)</td></tr>
+      <tr><td><code>autotune explain</code></td><td>Intelligence</td><td>explain_manifold() + explain_frontier() + recommend_strategy()</td><td>(stdout only)</td></tr>
+      <tr><td><code>autotune frontier</code></td><td>Intelligence</td><td>DAG.pareto_front() sorted by composite</td><td>(stdout only)</td></tr>
+      <tr><td><code>autotune rank --n 10</code></td><td>Intelligence</td><td>DAG.rank_proposals(n)</td><td>(stdout only)</td></tr>
+      <tr><td><code>autotune status</code></td><td>Intelligence</td><td>Reads queue/running/completed counters</td><td>(stdout only)</td></tr>
+      <tr><td><code>autotune check</code></td><td>Maintenance</td><td>Validate config, DAG integrity, orphans</td><td>(stdout only)</td></tr>
+      <tr><td><code>autotune reconcile</code></td><td>Maintenance</td><td>Process completed/*.json, rerank, recalculate</td><td>dag.json</td></tr>
+      <tr><td><code>autotune checkpoints [--prune]</code></td><td>Maintenance</td><td>List/delete checkpoints by Pareto rank</td><td>checkpoint_store/</td></tr>
+      <tr><td><code>autotune orchestrator start|stop</code></td><td>Daemon</td><td>Spawn/terminate ExperimentOrchestrator</td><td>orchestrator.pid, gpu_state.json</td></tr>
+      <tr><td><code>autotune viz start|stop</code></td><td>Daemon</td><td>Spawn/terminate aiohttp SSE dashboard</td><td>viz_server.pid</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== STATE MACHINE ===== -->
+<section id="state-machine">
+  <h2>DAGNode State Machine</h2>
+  <p class="subtitle">Every state transition a node can undergo, with the method that triggers it.</p>
+
+  <div class="diagram-container">
+    <pre class="mermaid">
+stateDiagram-v2
+    direction LR
+    [*] --> executed_keep : add_seed()
+    [*] --> proposed_pending : add_proposed()
+
+    state "PROPOSED" as proposed_pending
+    state "RUNNING" as running
+    state "EXECUTED&mdash;KEEP" as executed_keep
+    state "EXECUTED&mdash;DISCARD" as executed_discard
+    state "FAILED (oom)" as failed_oom
+    state "FAILED (crash)" as failed_crash
+    state "FAILED (timeout)" as failed_timeout
+    state "CANCELLED" as cancelled
+
+    proposed_pending --> running : mark_running()
+    proposed_pending --> cancelled : cancel()
+
+    running --> executed_keep : promote(metrics)&lt;br/&gt;pareto_rank &le; 1
+    running --> executed_discard : promote(metrics)&lt;br/&gt;pareto_rank &ge; 2
+
+    running --> failed_oom : mark_failed("oom")
+    running --> failed_crash : mark_failed("crash")
+    running --> failed_timeout : mark_failed("timeout")
+
+    executed_keep --> executed_discard : rerank_pareto()&lt;br/&gt;now dominated
+    executed_discard --> executed_keep : rerank_pareto()&lt;br/&gt;dominator removed
+    </pre>
+  </div>
+
+  <h3>Checkpoint Lifecycle by Status</h3>
+  <table>
+    <thead><tr><th>Status</th><th>Checkpoint</th><th>In DAG</th></tr></thead>
+    <tbody>
+      <tr><td><code>keep</code> (rank &le; 1)</td><td>Retained in checkpoint_store/</td><td>Yes</td></tr>
+      <tr><td><code>discard</code> (rank &ge; 2)</td><td>Pruned by _prune_checkpoints()</td><td>Yes (metrics preserved)</td></tr>
+      <tr><td><code>oom / crash / timeout</code></td><td>Never collected</td><td>Yes (metrics = None)</td></tr>
+      <tr><td><code>cancelled</code></td><td>Never created</td><td>Yes</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== ORCHESTRATOR LOOP ===== -->
+<section id="orch-loop">
+  <h2>Orchestrator Main Loop</h2>
+  <p class="subtitle"><code>ExperimentOrchestrator.run()</code> daemon lifecycle and the <code>tick()</code> cycle.</p>
+
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    START(["run() &mdash; daemon start"]):::orch --> PRUNE["runner.prune_stale_worktrees()"]
+    PRUNE --> RECOVER["_recover_orphans()<br/>Crash recovery: running/*.json &rarr; completed/"]
+    RECOVER --> PID["Write orchestrator.pid"]
+    PID --> TICK_START
+
+    subgraph TICK["tick() &mdash; every poll_interval seconds"]
+        TICK_START(["Begin tick"]) --> CHECK["_check_running()<br/>poll all subprocess.Popen"]
+        CHECK --> DONE_Q{"Any finished?"}
+        DONE_Q -- Yes --> HANDLE["_handle_completion()<br/>per finished process"]
+        DONE_Q -- No --> TIMEOUT_Q
+        HANDLE --> TIMEOUT_Q{"Any timed out?"}
+        TIMEOUT_Q -- Yes --> KILL["process.terminate()<br/>_timed_out[id] = True"]
+        TIMEOUT_Q -- No --> DRAIN_Q
+        KILL --> DRAIN_Q{"self.draining?"}
+
+        DRAIN_Q -- Yes --> SKIP["Skip launching<br/>(graceful shutdown)"]
+        DRAIN_Q -- No --> PENDING["_get_pending()<br/>Read &amp; sort queue/*.json"]
+        PENDING --> SPEC_LOOP{"Next spec?"}
+
+        SPEC_LOOP -- Yes --> GPU["_find_best_gpu(needed_gb)<br/>Best-fit bin packing"]
+        GPU --> GPU_OK{"GPU found?"}
+        GPU_OK -- Yes --> PRE["_pre_launch_check()<br/>Re-query nvidia-smi"]
+        GPU_OK -- No --> NEXT_SPEC["Skip spec"]
+        PRE --> LAUNCH["_launch(spec, gpu_id)"]
+        LAUNCH --> SPEC_LOOP
+        NEXT_SPEC --> SPEC_LOOP
+
+        SPEC_LOOP -- "No more" --> SAVE["_save_state()<br/>Write gpu_state.json"]
+    end
+
+    TICK --> SLEEP["sleep(poll_interval)"]
+    SLEEP --> SHUTDOWN{"_shutdown signal?"}
+    SHUTDOWN -- No --> TICK_START
+    SHUTDOWN -- Yes --> DRAIN2["draining = True<br/>Wait for all running"]
+    DRAIN2 --> CLEANUP(["Delete PID, save state"])
+
+    classDef orch fill:#3d2800,stroke:#ff9f43,color:#ff9f43
+    </pre>
+  </div>
+
+  <h3>GPU Scheduling: Best-Fit Bin Packing</h3>
+  <div class="math-block">
+    <div class="label">Algorithm</div>
+    <p>For each GPU $g$ with current allocations $A_g$:</p>
+    $$\text{free}_g = \text{vram}_g - \text{safety\_margin} - \sum_{n \in A_g} \text{est\_vram}(n)$$
+    <p>Select the GPU with the <strong>smallest</strong> $\text{free}_g \geq \text{needed\_gb}$ (tightest fit).</p>
+    <p>Constraint: $|A_g| < \text{max\_per\_gpu}$ (default 2 concurrent experiments per GPU).</p>
+  </div>
+</section>
+
+<!-- ===== LAUNCH SEQUENCE ===== -->
+<section id="launch-seq">
+  <h2>Experiment Launch Sequence</h2>
+  <p class="subtitle">Detailed <code>_launch(spec, gpu_id)</code> flow with checkpoint preparation per move type.</p>
+
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    L(["_launch(spec, gpu_id)"]):::orch --> A1["Create archive/&lt;id&gt;/<br/>Save spec.json"]
+    A1 --> A2["Delete queue/&lt;id&gt;.json"]
+    A2 --> A3["base_commit = git rev-parse HEAD"]
+    A3 --> A4["runner.create_worktree(base_commit, id)<br/>git worktree add --detach"]
+
+    A4 --> MOVE{"spec.move_type?"}
+
+    MOVE -- "seed / branch" --> BR["runner.prepare_branch()<br/>Copy checkpoint_store/&lt;parent&gt;/<br/>&rarr; wt/.parent_checkpoint/"]
+
+    MOVE -- "merge" --> MR["runner.merge_checkpoints()"]
+    MR --> STRAT{"merge_strategy?"}
+    STRAT -- weighted_avg --> WA["merged[k] = &Sigma; w&#7522; &times; parent&#7522;[k]"]
+    STRAT -- compose --> CO["base + &Sigma;(parent&#7522; - base)"]
+    WA --> SAVE_CP["Save &rarr; wt/.parent_checkpoint/"]
+    CO --> SAVE_CP
+
+    MOVE -- "graft" --> GR["runner.graft_checkpoint()<br/>delta = source - source_parent<br/>grafted = target + delta"]
+    GR --> SAVE_CP
+
+    BR --> ENV
+    SAVE_CP --> ENV
+
+    ENV["Set environment variables:<br/>CUDA_VISIBLE_DEVICES, AUTOTUNE_GPU,<br/>AUTOTUNE_NODE_ID, AUTOTUNE_CHECKPOINT_DIR,<br/>AUTOTUNE_PARENT_CHECKPOINT, AUTOTUNE_MOVE_TYPE,<br/>AUTOTUNE_RETENTION_SCRIPT (optional),<br/>AUTOTUNE_RETENTION_PROBE (optional)"]:::cli
+
+    ENV --> SPAWN["subprocess.Popen(cmd, cwd=wt, env=env)"]:::red_node
+    SPAWN --> RECORD["RunningExperiment(<br/>id, spec, gpu, process,<br/>log_file, started_at, timeout_at)"]
+    RECORD --> SENT["Write running/&lt;id&gt;.json<br/>(orphan recovery sentinel)"]
+    SENT --> MARK["dag.mark_running(id)<br/>status: pending &rarr; running"]
+
+    classDef orch fill:#3d2800,stroke:#ff9f43,color:#ff9f43
+    classDef cli fill:#1a3a5c,stroke:#58a6ff,color:#58a6ff
+    classDef red_node fill:#3a1a1a,stroke:#f85149,color:#f85149
+    </pre>
+  </div>
+</section>
+
+<!-- ===== COMPLETION ===== -->
+<section id="completion">
+  <h2>Completion Handling &amp; Post-Completion Intelligence</h2>
+  <p class="subtitle"><code>_handle_completion()</code>: result collection, status inference, and the intelligence update cascade.</p>
+
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    C(["_handle_completion(node_id, returncode)"]):::orch --> POP["Pop from running dict<br/>Remove GPU allocation<br/>Close log file"]
+
+    POP --> COLLECT["runner.collect_result(wt, archive)<br/>Copy + parse result.json"]
+
+    COLLECT --> STAT{"Determine status"}
+    STAT -- "result.status == completed" --> OK["status = completed"]:::green_node
+    STAT -- "CUDA OOM in log" --> OOM["status = oom"]:::red_node
+    STAT -- "_timed_out[id]" --> TO["status = timeout"]:::red_node
+    STAT -- "returncode != 0" --> CRASH["status = crash"]:::red_node
+
+    OK --> WRITE
+    OOM --> WRITE
+    TO --> WRITE
+    CRASH --> WRITE
+
+    WRITE["Write completed/&lt;id&gt;.json<br/>(metrics, status, elapsed, gpu)"]
+
+    WRITE --> CP_Q{"Checkpoint<br/>saved?"}
+    CP_Q -- Yes --> CP_COLLECT["runner.collect_checkpoint()<br/>wt/.checkpoint_output/ &rarr; checkpoint_store/&lt;id&gt;/"]
+    CP_Q -- No --> DEL
+
+    CP_COLLECT --> DEL["Delete running/&lt;id&gt;.json"]
+    DEL --> CLEAN["runner.cleanup_worktree(wt)"]
+
+    CLEAN --> INTEL
+
+    subgraph INTEL["Post-Completion Intelligence"]
+        direction TB
+        I1["Load DAG"] --> I2{"status?"}
+        I2 -- completed --> I3["dag.promote(id, metrics)<br/>type &rarr; executed, status &rarr; keep"]:::green_node
+        I2 -- "oom/crash/timeout" --> I4["dag.mark_failed(id, status)<br/>type &rarr; executed, metrics = None"]:::red_node
+
+        I3 --> I5["dag.rerank_pareto()<br/>NSGA-II non-dominated sorting"]:::intel
+        I4 --> I5
+
+        I5 --> I6["dag.recalculate_potential()<br/>DAG-UCB for all nodes"]:::intel
+
+        I6 --> I7{"len(executed) &ge; 10?"}
+        I7 -- Yes --> I8["manifold.update(thetas, objectives)<br/>CMA-ES covariance learning"]:::intel
+        I7 -- No --> I9
+
+        I8 --> I9{"completed AND<br/>retention_score?"}
+        I9 -- Yes --> I10["forgetting.check_cliff(node, parents)<br/>If delta &lt; threshold &rarr; DangerZone"]:::red_node
+        I9 -- No --> I11
+
+        I10 --> I11["_prune_checkpoints()<br/>Delete rank &ge; retention_layers"]
+        I11 --> I12["dag.save()"]
+    end
+
+    INTEL --> TSV["_append_results_tsv()"]
+
+    classDef orch fill:#3d2800,stroke:#ff9f43,color:#ff9f43
+    classDef intel fill:#2d1f4e,stroke:#bc8cff,color:#bc8cff
+    classDef green_node fill:#1a3320,stroke:#3fb950,color:#3fb950
+    classDef red_node fill:#3a1a1a,stroke:#f85149,color:#f85149
+    </pre>
+  </div>
+</section>
+
+<!-- ===== SUGGESTION PIPELINE ===== -->
+<section id="suggest-pipeline">
+  <h2>Suggestion Pipeline</h2>
+  <p class="subtitle"><code>StrategyNavigator.suggest_moves()</code>: combines DAG-UCB, manifold direction, and forgetting constraints.</p>
+
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    S(["suggest_moves(n=5)"]):::cli --> KEPT["kept = dag.kept_nodes()<br/>(pareto_rank &le; 1)"]
+
+    KEPT --> BL["For each kept node:"]
+
+    subgraph BRANCH["Generate BRANCH proposals"]
+        direction TB
+        B1["&theta;_new = manifold.propose_direction(node.&theta;)"]:::intel
+        B1 --> B2["coords = manifold.project(&theta;_new)"]
+        B2 --> B3{"In danger zone?"}
+        B3 -- Yes --> B4["SKIP"]:::red_node
+        B3 -- No --> B5["score = branch_score(node)"]
+        B5 --> B6["Add MoveProposal(branch)"]:::green_node
+    end
+
+    BL --> BRANCH
+    BRANCH --> ML["For each diverse kept-node pair (a, b):"]
+
+    subgraph MERGE["Generate MERGE proposals"]
+        direction TB
+        M1["diversity = cosine_dist(a.coords, b.coords)"]
+        M1 --> M2{"diversity &ge; 0.1?"}
+        M2 -- No --> M3["SKIP"]:::red_node
+        M2 -- Yes --> M4["&theta;_merged = 0.5 &times; a.&theta; + 0.5 &times; b.&theta;"]
+        M4 --> M5["coords = manifold.project(&theta;_merged)"]
+        M5 --> M6{"In danger zone?"}
+        M6 -- Yes --> M7["SKIP"]:::red_node
+        M6 -- No --> M8["score = merge_score(a, b, diversity)"]
+        M8 --> M9["Add MoveProposal(merge)"]:::green_node
+    end
+
+    ML --> MERGE
+    MERGE --> SORT["Sort all proposals by score DESC"]
+    SORT --> RET(["Return top n"]):::green_node
+
+    classDef cli fill:#1a3a5c,stroke:#58a6ff,color:#58a6ff
+    classDef intel fill:#2d1f4e,stroke:#bc8cff,color:#bc8cff
+    classDef green_node fill:#1a3320,stroke:#3fb950,color:#3fb950
+    classDef red_node fill:#3a1a1a,stroke:#f85149,color:#f85149
+    </pre>
+  </div>
+</section>
+
+<!-- ===== SEQUENCE DIAGRAM ===== -->
+<section id="sequence">
+  <h2>Full Sequence Diagram</h2>
+  <p class="subtitle">One complete experiment cycle: proposal &rarr; queue &rarr; execute &rarr; intelligence update &rarr; next suggestion.</p>
+
+  <div class="diagram-container">
+    <pre class="mermaid">
+sequenceDiagram
+    participant Agent
+    participant CLI
+    participant DAG
+    participant Queue
+    participant Orch as Orchestrator
+    participant Runner
+    participant Train as Training Process
+    participant Manifold
+    participant Forget as Forgetting
+    participant Viz as Dashboard
+
+    Agent->>CLI: autotune propose --parents node_0001 --move branch --theta '{...}'
+    CLI->>DAG: add_proposed(parent_ids, move_type, theta)
+    DAG->>DAG: recalculate_potential()
+    DAG-->>CLI: node_0005 created (pending)
+
+    Agent->>CLI: autotune submit --node node_0005
+    CLI->>Queue: Write queue/node_0005.json
+
+    Note over Orch: tick() cycle
+    Orch->>Queue: _get_pending()
+    Orch->>Orch: _find_best_gpu() + _pre_launch_check()
+    Orch->>Runner: create_worktree(HEAD, node_0005)
+    Orch->>Runner: prepare_branch(parent_cp)
+    Orch->>DAG: mark_running(node_0005)
+    Orch->>Train: Popen(train.py, env={AUTOTUNE_*})
+
+    Note over Train: Training in isolated worktree
+    Train->>Train: Load AUTOTUNE_PARENT_CHECKPOINT
+    Train->>Train: Train model
+    Train->>Train: Save to AUTOTUNE_CHECKPOINT_DIR
+    Train->>Train: Write result.json
+
+    Note over Orch: Next tick()
+    Orch->>Train: process.poll() = 0
+    Orch->>Runner: collect_result() + collect_checkpoint()
+    Orch->>Runner: cleanup_worktree()
+
+    rect rgba(188,140,255,0.1)
+    Note over Orch,Forget: Post-Completion Intelligence
+    Orch->>DAG: promote(node_0005, metrics)
+    Orch->>DAG: rerank_pareto() [NSGA-II]
+    Orch->>DAG: recalculate_potential() [DAG-UCB]
+    Orch->>Manifold: update(thetas, objectives) [CMA-ES]
+    Orch->>Forget: check_cliff(node, parents)
+    Orch->>DAG: _prune_checkpoints() + save()
+    end
+
+    DAG-->>Viz: dag.json changed
+    Manifold-->>Viz: manifold_state.json changed
+    Viz->>Agent: SSE: dag_update + manifold_update
+
+    Agent->>CLI: autotune suggest --n 5
+    CLI-->>Agent: Ranked MoveProposals
+    Note over Agent: Analyze, form hypothesis, repeat cycle
+    </pre>
+  </div>
+</section>
+
+<!-- ======================================================================= -->
+<!-- ==================== MATHEMATICAL DETAIL ============================== -->
+<!-- ======================================================================= -->
+
+<section id="pareto">
+  <h2>NSGA-II Pareto Ranking <span class="badge">ALGORITHM</span></h2>
+  <p class="subtitle"><code>dag.rerank_pareto()</code> &mdash; Stratifies executed nodes into non-dominated layers.</p>
+
+  <h3>Objective Space</h3>
+  <div class="math-block">
+    <div class="label">Objectives</div>
+    <p>Each executed node $n$ is evaluated on up to three objectives:</p>
+    $$\mathbf{f}(n) = \begin{cases}
+      \bigl(\text{task}(n),\ \text{retention}(n),\ -\text{cost}(n)\bigr) & \text{if retention enabled} \\[4pt]
+      \bigl(\text{task}(n),\ -\text{cost}(n)\bigr) & \text{otherwise}
+    \end{cases}$$
+    <p>All objectives are <strong>maximized</strong> (cost is negated).</p>
+  </div>
+
+  <h3>Domination</h3>
+  <div class="math-block">
+    <div class="label">Definition</div>
+    <p>Node $A$ <strong>dominates</strong> node $B$ (written $A \succ B$) if and only if:</p>
+    $$A \succ B \iff \Bigl(\forall\, i:\ f_i(A) \geq f_i(B)\Bigr) \;\wedge\; \Bigl(\exists\, j:\ f_j(A) > f_j(B)\Bigr)$$
+    <p>That is, $A$ is at least as good as $B$ on every objective, and strictly better on at least one.</p>
+  </div>
+
+  <h3>Non-Dominated Sorting</h3>
+  <div class="math-block">
+    <div class="label">Algorithm</div>
+    <p>Iteratively extract non-dominated fronts from the remaining population:</p>
+    $$\begin{aligned}
+      &S_0 \leftarrow \bigl\{\text{all executed nodes with metrics}\bigr\} \\
+      &r \leftarrow 0 \\
+      &\textbf{while } S_r \neq \emptyset: \\
+      &\quad F_r \leftarrow \bigl\{n \in S_r \mid \nexists\, m \in S_r : m \succ n\bigr\} \\
+      &\quad \forall\, n \in F_r:\ n.\text{pareto\_rank} \leftarrow r \\
+      &\quad S_{r+1} \leftarrow S_r \setminus F_r \\
+      &\quad r \leftarrow r + 1
+    \end{aligned}$$
+  </div>
+
+  <h3>Status Assignment</h3>
+  <div class="math-block">
+    <div class="label">Rule</div>
+    $$n.\text{status} = \begin{cases}
+      \text{keep} & \text{if } n.\text{pareto\_rank} \leq 1 \\[2pt]
+      \text{discard} & \text{if } n.\text{pareto\_rank} \geq 2
+    \end{cases}$$
+    <p>Rank-0 = Pareto-optimal. Rank-1 = near-front (backup). Rank-2+ = dominated (checkpoints pruned).</p>
+    <p>The retention threshold (default 2) is configurable via <code>orchestrator.checkpoint_retention_layers</code>.</p>
+  </div>
+</section>
+
+<!-- ===== DAG-UCB ===== -->
+<section id="dag-ucb">
+  <h2>DAG-UCB Potential Scoring <span class="badge">ALGORITHM</span></h2>
+  <p class="subtitle"><code>dag.recalculate_potential()</code> &mdash; UCB1-inspired scoring that balances exploitation and exploration over a DAG structure.</p>
+
+  <h3>Potential Formula</h3>
+  <div class="math-block">
+    <div class="label">Core Equation</div>
+    $$\text{potential}(n) = \Bigl(\underbrace{c(n)}_{\text{exploitation}} + \underbrace{w_e \cdot \sqrt{\frac{\ln N}{1 + k(n)}}}_{\text{exploration bonus}}\Bigr) \times \underbrace{h(n)}_{\text{retention health}}$$
+    <p>where:</p>
+    <ul>
+      <li>$c(n) = n.\text{composite}$ (or 0 if None)</li>
+      <li>$w_e = \text{scoring.exploration\_weight}$ (hyperparameter)</li>
+      <li>$N = \text{total\_executed}$ (number of completed experiments)</li>
+      <li>$k(n) = |\text{children}(n)|$ (direct child count in the DAG)</li>
+    </ul>
+  </div>
+
+  <h3>Retention Health Multiplier</h3>
+  <div class="math-block">
+    <div class="label">Piecewise Definition</div>
+    $$h(n) = \begin{cases}
+      1.0 & \text{if } n.\text{retention\_score} = \text{None} \\[4pt]
+      n.\text{retention\_score} & \text{if } n.\text{retention\_score} \geq |\tau| \\[4pt]
+      n.\text{retention\_score} \times 0.5 & \text{if } n.\text{retention\_score} < |\tau|
+    \end{cases}$$
+    <p>where $\tau = \text{scoring.retention\_cliff\_threshold}$ (e.g., $-0.10$).</p>
+    <p>Nodes below the cliff threshold have their potential <strong>halved</strong>, steering exploration away from regions that cause forgetting.</p>
+  </div>
+
+  <h3>Intuition</h3>
+  <p><strong>Exploitation:</strong> High composite score $c(n)$ gives a high base potential.</p>
+  <p><strong>Exploration:</strong> Nodes with fewer children get a larger bonus (the $\ln N / (1 + k)$ term grows as $k$ decreases). This prevents the agent from over-exploiting a single branch and encourages breadth.</p>
+  <p><strong>Safety:</strong> The health multiplier penalizes nodes that caused retention drops, making the search avoid catastrophic forgetting regions.</p>
+</section>
+
+<!-- ===== CMA-ES ===== -->
+<section id="cma-es">
+  <h2>CMA-ES Manifold Learning <span class="badge">ALGORITHM</span></h2>
+  <p class="subtitle"><code>ManifoldNavigator.update()</code> &mdash; Learns parameter correlations via covariance matrix adaptation. Triggered after every completion when <code>|executed| &ge; 10</code>.</p>
+
+  <h3>Step 1: Normalization</h3>
+  <div class="math-block">
+    <div class="label">Bounds Normalization</div>
+    <p>All hyperparameter vectors $\theta \in \mathbb{R}^d$ are normalized to $[0,1]^d$:</p>
+    $$\hat{\theta}_i = \frac{\theta_i - \text{lo}_i}{\text{hi}_i - \text{lo}_i} \quad \text{for each parameter } i$$
+    <p>where $(\text{lo}_i, \text{hi}_i)$ are the configured bounds from <code>config.yaml</code>.</p>
+  </div>
+
+  <h3>Step 2: Selection &amp; Weighting</h3>
+  <div class="math-block">
+    <div class="label">Elite Selection</div>
+    <p>Rank all $N$ evaluated points by composite score. Take the top $\mu = \lfloor N/2 \rfloor$ (elite half).</p>
+    <p>Assign log-decay weights:</p>
+    $$w_i = \ln(\mu + 0.5) - \ln(i) \qquad \text{for } i = 1, \ldots, \mu$$
+    <p>Normalize: $w_i \leftarrow w_i / \sum_j w_j$ so that $\sum_i w_i = 1$.</p>
+    <p>Higher-ranked points get exponentially more weight.</p>
+  </div>
+
+  <h3>Step 3: Mean Update</h3>
+  <div class="math-block">
+    <div class="label">Weighted Mean</div>
+    $$\boldsymbol{\mu}_{\text{new}} = \sum_{i=1}^{\mu} w_i \, \hat{\theta}_i$$
+    <p>The centroid moves toward the best-performing region of the search space.</p>
+  </div>
+
+  <h3>Step 4: Covariance Update</h3>
+  <div class="math-block">
+    <div class="label">Weighted Covariance + Exponential Moving Average</div>
+    <p>Compute the weighted sample covariance from deviations relative to the <em>old</em> mean:</p>
+    $$\boldsymbol{C}_{\text{sample}} = \sum_{i=1}^{\mu} w_i \, (\hat{\theta}_i - \boldsymbol{\mu}_{\text{old}})(\hat{\theta}_i - \boldsymbol{\mu}_{\text{old}})^\top$$
+    <p>Blend with the running estimate using learning rate $\alpha = 0.3$:</p>
+    $$\boldsymbol{C}_{\text{new}} = (1 - \alpha)\,\boldsymbol{C}_{\text{old}} + \alpha\,\boldsymbol{C}_{\text{sample}}$$
+    <p>This exponential moving average prevents the covariance from changing too rapidly on noisy objectives.</p>
+  </div>
+
+  <h3>Step 5: Eigendecomposition</h3>
+  <div class="math-block">
+    <div class="label">Principal Components</div>
+    $$\boldsymbol{C}_{\text{new}} = \mathbf{V} \, \boldsymbol{\Lambda} \, \mathbf{V}^\top$$
+    <p>where $\boldsymbol{\Lambda} = \text{diag}(\lambda_1, \lambda_2, \ldots, \lambda_d)$ with $\lambda_1 \geq \lambda_2 \geq \cdots \geq \lambda_d$.</p>
+    <p>The columns of $\mathbf{V}$ are the <strong>principal components</strong> (eigenvectors), sorted by variance contribution.</p>
+  </div>
+
+  <h3>Step 6: Effective Dimensionality</h3>
+  <div class="math-block">
+    <div class="label">95% Variance Threshold</div>
+    $$d_{\text{eff}} = \min\!\left\{k : \frac{\sum_{j=1}^{k} \lambda_j}{\sum_{j=1}^{d} \lambda_j} \geq 0.95\right\}$$
+    <p>Only the top $d_{\text{eff}}$ PCs capture meaningful variance. Proposals and projections use this reduced subspace.</p>
+  </div>
+
+  <h3>Step 7: Step Size Adaptation</h3>
+  <div class="math-block">
+    <div class="label">Per-PC Step Size</div>
+    $$s_j^{(t+1)} = \begin{cases}
+      s_j^{(t)} \times 1.2 & \text{if } \lambda_j^{(t+1)} > \lambda_j^{(t)} \quad \text{(variance grew)} \\[4pt]
+      s_j^{(t)} \times 0.8 & \text{if } \lambda_j^{(t+1)} \leq \lambda_j^{(t)} \quad \text{(variance shrank)}
+    \end{cases}$$
+    <p>Growing variance along a PC means that direction is productive; shrinking means it's over-explored.</p>
+  </div>
+
+  <h3>Proposal: <code>propose_direction(from_theta, pc_index)</code></h3>
+  <div class="math-block">
+    <div class="label">Directional Step</div>
+    <p><strong>If untrained</strong> (generation = 0): random unit vector with step 0.1.</p>
+    <p><strong>If trained:</strong></p>
+    <p>Sample PC index $j$ proportional to eigenvalue magnitude (if not specified):</p>
+    $$P(j) = \frac{\lambda_j}{\sum_k \lambda_k}$$
+    <p>Then step along the chosen PC:</p>
+    $$\hat{\theta}_{\text{new}} = \text{clip}\!\bigl(\text{normalize}(\theta_{\text{from}}) + s_j \cdot \mathbf{v}_j,\ 0,\ 1\bigr)$$
+    <p>where $\mathbf{v}_j$ is the $j$-th eigenvector and $s_j$ is the adapted step size.</p>
+    <p>Denormalize back to original parameter space.</p>
+  </div>
+
+  <h3>Proposal: <code>propose_candidates(from_theta, n)</code></h3>
+  <div class="math-block">
+    <div class="label">Gaussian Sampling</div>
+    <p><strong>If untrained:</strong> $n$ uniform samples from $[0,1]^d$.</p>
+    <p><strong>If trained:</strong></p>
+    $$\hat{\theta}_i \sim \mathcal{N}\!\bigl(\text{normalize}(\theta_{\text{from}}),\ 0.01 \cdot \boldsymbol{C}\bigr) \quad \text{for } i = 1, \ldots, n$$
+    <p>Clip to $[0,1]^d$, then denormalize.</p>
+  </div>
+
+  <h3>Projection: <code>project(theta)</code></h3>
+  <div class="math-block">
+    <div class="label">Manifold Coordinates</div>
+    $$\mathbf{z} = \mathbf{V}_{:d_{\text{eff}}}^\top \, (\hat{\theta} - \boldsymbol{\mu})$$
+    <p>Projects a $d$-dimensional parameter vector onto the $d_{\text{eff}}$-dimensional manifold subspace. Used for danger zone checks and diversity computation.</p>
+  </div>
+
+  <h3>Parameter Importance: <code>parameter_importance()</code></h3>
+  <div class="math-block">
+    <div class="label">Variance Contribution per Parameter</div>
+    $$\text{importance}(i) = \frac{\displaystyle\sum_{j=1}^{d} \lambda_j \cdot |V_{ij}|}{\displaystyle\sum_{i'=1}^{d} \sum_{j=1}^{d} \lambda_j \cdot |V_{i'j}|}$$
+    <p>Sums each parameter's absolute loading across all PCs, weighted by eigenvalue. Normalized to sum to 1.</p>
+  </div>
+</section>
+
+<!-- ===== FORGETTING ===== -->
+<section id="forgetting-math">
+  <h2>Forgetting Detection <span class="badge">ALGORITHM</span></h2>
+  <p class="subtitle"><code>ForgettingDetector</code> &mdash; Retention cliff detection and manifold danger zone tracking.</p>
+
+  <h3>Cliff Detection: <code>check_cliff(node, parents)</code></h3>
+  <div class="math-block">
+    <div class="label">Retention Delta</div>
+    <p>Compare node's retention against the best parent:</p>
+    $$r^* = \max_{p \in \text{parents}(n)} \text{retention}(p)$$
+    $$\delta = \text{retention}(n) - r^*$$
+    <p>A cliff is detected when:</p>
+    $$\delta < \tau \qquad (\tau = \text{cliff\_threshold}, \text{ e.g., } {-0.10})$$
+  </div>
+
+  <h3>Danger Zone Creation</h3>
+  <div class="math-block">
+    <div class="label">Exclusion Region</div>
+    <p>When a cliff is detected at node $n$:</p>
+    $$\text{DangerZone} = \Bigl(\underbrace{\mathbf{z}_n}_{\text{center}},\ \underbrace{|\delta| \cdot s}_{\text{radius}},\ \underbrace{t_n}_{\text{cause technique}},\ \underbrace{|\delta|}_{\text{severity}}\Bigr)$$
+    <p>where $\mathbf{z}_n = \text{project}(\theta_n)$ are the manifold coordinates, and $s = 0.5$ is the step size multiplier.</p>
+    <p>A larger retention drop creates a larger exclusion zone.</p>
+  </div>
+
+  <h3>Zone Check: <code>is_in_danger_zone_coords(coords)</code></h3>
+  <div class="math-block">
+    <div class="label">Euclidean Distance Test</div>
+    <p>For a candidate at manifold coordinates $\mathbf{z}$:</p>
+    $$\text{in\_danger} = \exists\, \text{dz} \in \mathcal{D} : \|\mathbf{z} - \mathbf{z}_{\text{dz}}\|_2 \leq r_{\text{dz}}$$
+    <p>where $\mathcal{D}$ is the accumulated set of danger zones. Uses truncated dimensions: $\min(\dim(\mathbf{z}), \dim(\mathbf{z}_{\text{dz}}))$.</p>
+    <p>If any danger zone contains the candidate, the proposal is <strong>skipped</strong> by <code>suggest_moves()</code>.</p>
+  </div>
+
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    A["check_cliff(node, parents)"] --> B{"node.retention<br/>is not None?"}
+    B -- No --> C["Return None"]
+    B -- Yes --> D["r* = max parent retention"]
+    D --> E["&delta; = node.retention - r*"]
+    E --> F{"&delta; &lt; &tau;?"}
+    F -- No --> G["Return None (safe)"]:::green_node
+    F -- Yes --> H["severity = |&delta;|"]
+    H --> I["center = project(node.&theta;)"]
+    I --> J["radius = severity &times; 0.5"]
+    J --> K["Create DangerZone"]:::red_node
+    K --> L["Append to danger_zones"]
+    L --> M["Return CliffReport"]
+
+    classDef green_node fill:#1a3320,stroke:#3fb950,color:#3fb950
+    classDef red_node fill:#3a1a1a,stroke:#f85149,color:#f85149
+    </pre>
+  </div>
+</section>
+
+<!-- ===== SCORING ===== -->
+<section id="scoring">
+  <h2>Branch &amp; Merge Scoring <span class="badge">ALGORITHM</span></h2>
+  <p class="subtitle">Scoring formulas used by <code>StrategyNavigator.suggest_moves()</code> to rank proposals.</p>
+
+  <h3>Branch Scoring (Single Parent)</h3>
+  <div class="math-block">
+    <div class="label">Formula</div>
+    $$\text{score}_{\text{branch}}(n) = \Bigl(c(n) + w_e \cdot \sqrt{\frac{\ln N}{1 + k(n)}}\Bigr) \times h(n)$$
+    <p>Identical to DAG-UCB potential. Variables:</p>
+    <ul>
+      <li>$c(n)$ = parent's composite score (or 0)</li>
+      <li>$w_e$ = <code>scoring.exploration_weight</code></li>
+      <li>$N$ = total executed experiments</li>
+      <li>$k(n)$ = number of children of the parent node</li>
+      <li>$h(n)$ = retention health (see <a href="#dag-ucb">DAG-UCB</a>)</li>
+    </ul>
+  </div>
+
+  <h3>Merge Scoring (Two Parents)</h3>
+  <div class="math-block">
+    <div class="label">Formula</div>
+    $$\text{score}_{\text{merge}}(A, B) = \Bigl(\bar{c} + w_e \cdot \sqrt{\frac{\ln N}{1 + m_{AB}}} + w_d \cdot \text{div}(A,B)\Bigr) \times \kappa(A, B)$$
+
+    <p>where:</p>
+    $$\bar{c} = \frac{c(A) + c(B)}{2}$$
+    $$m_{AB} = \text{count of prior merges between } A \text{ and } B$$
+    $$\text{div}(A,B) = 1 - \frac{\mathbf{z}_A \cdot \mathbf{z}_B}{\|\mathbf{z}_A\| \cdot \|\mathbf{z}_B\|} \quad \text{(cosine distance in manifold space)}$$
+  </div>
+
+  <h3>Complementarity Bonus</h3>
+  <div class="math-block">
+    <div class="label">Formula</div>
+    $$\kappa(A, B) = \begin{cases}
+      1.0 + |\text{task}(A) - \text{task}(B)| \cdot |\text{ret}(A) - \text{ret}(B)| & \text{if both have task and retention scores} \\[4pt]
+      1.0 & \text{otherwise}
+    \end{cases}$$
+    <p>Pairs where one parent is strong on task and the other on retention get a complementarity boost, incentivizing merges that combine orthogonal strengths.</p>
+  </div>
+
+  <h3>Diversity Gate</h3>
+  <div class="math-block">
+    <div class="label">Minimum Threshold</div>
+    $$\text{div}(A, B) < 0.1 \implies \text{skip merge proposal}$$
+    <p>Prevents proposing merges between near-identical parents (no benefit from combining).</p>
+  </div>
+</section>
+
+<!-- ===== CHECKPOINT MATH ===== -->
+<section id="checkpoint-math">
+  <h2>Checkpoint Operations <span class="badge">ALGORITHM</span></h2>
+  <p class="subtitle">Mathematical definitions of the four checkpoint strategies: branch, weighted average, compose, and graft.</p>
+
+  <h3>Branch (Copy)</h3>
+  <div class="math-block">
+    <div class="label">Identity</div>
+    $$\theta_{\text{child}} \leftarrow \theta_{\text{parent}}$$
+    <p>Direct copy of the parent checkpoint. The training script starts from this base.</p>
+  </div>
+
+  <h3>Weighted Average Merge</h3>
+  <div class="math-block">
+    <div class="label">Element-wise Weighted Sum</div>
+    <p>Given parents $P_1, P_2, \ldots, P_m$ with weights $w_1, w_2, \ldots, w_m$ where $\sum w_i = 1$:</p>
+    $$\theta_{\text{merged}}[k] = \sum_{i=1}^{m} w_i \cdot \theta_{P_i}[k] \qquad \forall\, k \in \bigcap_{i} \text{keys}(\theta_{P_i})$$
+    <p>Only keys present in <strong>all</strong> parent state dicts are merged. Missing keys are dropped.</p>
+  </div>
+
+  <h3>Compose Merge (LoRA)</h3>
+  <div class="math-block">
+    <div class="label">Accumulated Delta from Base</div>
+    <p>Given base $P_0$ and additional parents $P_1, \ldots, P_{m-1}$:</p>
+    $$\Delta = \sum_{i=1}^{m-1} \bigl(\theta_{P_i}[k] - \theta_{P_0}[k]\bigr)$$
+    $$\theta_{\text{composed}}[k] = \theta_{P_0}[k] + \Delta$$
+    <p>Sums the deltas of all parents relative to a shared base, then applies the total delta. Useful for composing independent LoRA adaptations.</p>
+  </div>
+
+  <h3>Graft</h3>
+  <div class="math-block">
+    <div class="label">Cross-Branch Technique Transfer</div>
+    <p>Given a source experiment $S$ with source parent $S_p$, and a target parent $T_p$:</p>
+    $$\Delta_S[k] = \theta_S[k] - \theta_{S_p}[k] \qquad \text{(technique delta)}$$
+    $$\theta_{\text{grafted}}[k] = \theta_{T_p}[k] + \Delta_S[k]$$
+    <p>For keys not in $S$ or $S_p$, the target parent's value is kept unchanged:</p>
+    $$\theta_{\text{grafted}}[k] = \theta_{T_p}[k] \qquad \text{if } k \notin \text{keys}(\theta_S) \cup \text{keys}(\theta_{S_p})$$
+    <p>This "grafts" the learned technique from one branch onto a different branch of the DAG.</p>
+  </div>
+
+  <h3>State Dict Loading (Framework-Agnostic)</h3>
+  <div class="math-block">
+    <div class="label">Priority Order</div>
+    <p>When loading from a directory, <code>_load_state_dict()</code> searches in order:</p>
+    <ol>
+      <li><code>adapter_model.safetensors</code> (PEFT/LoRA)</li>
+      <li><code>pytorch_model.bin</code> (PyTorch)</li>
+      <li><code>model.safetensors</code> (SafeTensors)</li>
+    </ol>
+    <p>File format detected by extension: <code>.safetensors</code> &rarr; <code>safetensors.torch.load_file()</code>, else <code>torch.load(weights_only=True)</code>.</p>
+  </div>
+</section>
+
+<!-- ======================================================================= -->
+<!-- ==================== DATA STRUCTURES ================================== -->
+<!-- ======================================================================= -->
+
+<section id="types">
+  <h2>Frozen Dataclasses</h2>
+  <p class="subtitle">All types in <code>types.py</code> are <code>@dataclass(frozen=True)</code> for immutability.</p>
+
+  <div class="struct-card">
+    <div class="name">DAGNode</div>
+    <div class="desc">Immutable experiment node &mdash; the fundamental unit of the experiment DAG.</div>
+    <div class="field"><span class="field-name">id</span><span class="field-type">str</span><span class="field-desc">"node_0001", sequential</span></div>
+    <div class="field"><span class="field-name">parent_ids</span><span class="field-type">tuple[str, ...]</span><span class="field-desc">() for seed, (p,) for branch, (p1,p2) for merge</span></div>
+    <div class="field"><span class="field-name">move_type</span><span class="field-type">str</span><span class="field-desc">"seed" | "branch" | "merge" | "graft"</span></div>
+    <div class="field"><span class="field-name">theta</span><span class="field-type">dict[str, float]</span><span class="field-desc">Hyperparameters, e.g., {"lr": 2e-4, "rank": 16}</span></div>
+    <div class="field"><span class="field-name">manifold_coords</span><span class="field-type">tuple[float, ...] | None</span><span class="field-desc">PC projection (computed on complete)</span></div>
+    <div class="field"><span class="field-name">strategy_desc</span><span class="field-type">str</span><span class="field-desc">Agent's rationale for this experiment</span></div>
+    <div class="field"><span class="field-name">technique_tags</span><span class="field-type">tuple[str, ...]</span><span class="field-desc">e.g., ("lr_increase", "rank_boost")</span></div>
+    <div class="field"><span class="field-name">task_score</span><span class="field-type">float | None</span><span class="field-desc">Primary task metric (None while pending)</span></div>
+    <div class="field"><span class="field-name">retention_score</span><span class="field-type">float | None</span><span class="field-desc">Forgetting resistance (None if not configured)</span></div>
+    <div class="field"><span class="field-name">cost</span><span class="field-type">float | None</span><span class="field-desc">Compute cost metric</span></div>
+    <div class="field"><span class="field-name">composite</span><span class="field-type">float | None</span><span class="field-desc">Scalar combining all objectives</span></div>
+    <div class="field"><span class="field-name">checkpoint_id</span><span class="field-type">str | None</span><span class="field-desc">Reference to checkpoint_store/&lt;id&gt;/</span></div>
+    <div class="field"><span class="field-name">depth</span><span class="field-type">int</span><span class="field-desc">Longest path from any root</span></div>
+    <div class="field"><span class="field-name">potential</span><span class="field-type">float</span><span class="field-desc">DAG-UCB exploration score</span></div>
+    <div class="field"><span class="field-name">pareto_rank</span><span class="field-type">int | None</span><span class="field-desc">0 = optimal, 1 = near-front, 2+ = dominated</span></div>
+    <div class="field"><span class="field-name">node_type</span><span class="field-type">str</span><span class="field-desc">"executed" | "proposed"</span></div>
+    <div class="field"><span class="field-name">status</span><span class="field-type">str</span><span class="field-desc">pending | running | keep | discard | oom | crash | timeout | cancelled</span></div>
+    <div class="field"><span class="field-name">created_at</span><span class="field-type">str</span><span class="field-desc">ISO-8601 timestamp</span></div>
+  </div>
+
+  <div class="struct-card">
+    <div class="name">DAGMeta</div>
+    <div class="desc">Metadata snapshot for the entire experiment DAG.</div>
+    <div class="field"><span class="field-name">next_id</span><span class="field-type">int</span><span class="field-desc">Counter for sequential node IDs</span></div>
+    <div class="field"><span class="field-name">total_executed</span><span class="field-type">int</span><span class="field-desc">Count of completed experiments</span></div>
+    <div class="field"><span class="field-name">total_proposed</span><span class="field-type">int</span><span class="field-desc">Count of proposed experiments</span></div>
+    <div class="field"><span class="field-name">best_composite</span><span class="field-type">float</span><span class="field-desc">Highest composite score seen</span></div>
+    <div class="field"><span class="field-name">scoring</span><span class="field-type">ScoringConfig</span><span class="field-desc">UCB hyperparameters</span></div>
+  </div>
+
+  <div class="struct-card">
+    <div class="name">ScoringConfig</div>
+    <div class="desc">Hyperparameters for DAG-UCB and merge scoring.</div>
+    <div class="field"><span class="field-name">exploration_weight</span><span class="field-type">float</span><span class="field-desc">$w_e$ in UCB formula</span></div>
+    <div class="field"><span class="field-name">diversity_weight</span><span class="field-type">float</span><span class="field-desc">$w_d$ in merge scoring</span></div>
+    <div class="field"><span class="field-name">retention_cliff_threshold</span><span class="field-type">float</span><span class="field-desc">$\tau$ for cliff detection (e.g., -0.10)</span></div>
+  </div>
+
+  <div class="struct-card">
+    <div class="name">ManifoldState</div>
+    <div class="desc">Snapshot of the learned parameter manifold.</div>
+    <div class="field"><span class="field-name">param_names</span><span class="field-type">tuple[str, ...]</span><span class="field-desc">Ordered parameter names</span></div>
+    <div class="field"><span class="field-name">covariance</span><span class="field-type">np.ndarray (d&times;d)</span><span class="field-desc">Learned covariance matrix in [0,1]^d</span></div>
+    <div class="field"><span class="field-name">eigenvalues</span><span class="field-type">np.ndarray (d,)</span><span class="field-desc">Sorted descending</span></div>
+    <div class="field"><span class="field-name">eigenvectors</span><span class="field-type">np.ndarray (d&times;d)</span><span class="field-desc">Sorted by eigenvalue</span></div>
+    <div class="field"><span class="field-name">mean</span><span class="field-type">np.ndarray (d,)</span><span class="field-desc">Centroid of elite points in [0,1]^d</span></div>
+    <div class="field"><span class="field-name">step_sizes</span><span class="field-type">np.ndarray (d,)</span><span class="field-desc">Adapted step per PC</span></div>
+    <div class="field"><span class="field-name">effective_dim</span><span class="field-type">int</span><span class="field-desc">PCs capturing &ge;95% variance</span></div>
+    <div class="field"><span class="field-name">generation</span><span class="field-type">int</span><span class="field-desc">CMA-ES update count</span></div>
+  </div>
+
+  <div class="struct-card">
+    <div class="name">DangerZone</div>
+    <div class="desc">Manifold region flagged for catastrophic forgetting.</div>
+    <div class="field"><span class="field-name">center</span><span class="field-type">tuple[float, ...]</span><span class="field-desc">Manifold coordinates of the cliff</span></div>
+    <div class="field"><span class="field-name">radius</span><span class="field-type">float</span><span class="field-desc">Exclusion radius (severity &times; step_size)</span></div>
+    <div class="field"><span class="field-name">cause_technique</span><span class="field-type">str</span><span class="field-desc">Technique tag that caused forgetting</span></div>
+    <div class="field"><span class="field-name">severity</span><span class="field-type">float</span><span class="field-desc">Magnitude of retention drop</span></div>
+  </div>
+
+  <div class="struct-card">
+    <div class="name">CliffReport</div>
+    <div class="desc">Report generated when a retention cliff is detected.</div>
+    <div class="field"><span class="field-name">node_id</span><span class="field-type">str</span><span class="field-desc">Node that triggered the cliff</span></div>
+    <div class="field"><span class="field-name">delta</span><span class="field-type">float</span><span class="field-desc">Retention change (negative)</span></div>
+    <div class="field"><span class="field-name">severity</span><span class="field-type">float</span><span class="field-desc">|delta|</span></div>
+    <div class="field"><span class="field-name">danger_zone</span><span class="field-type">DangerZone</span><span class="field-desc">The created exclusion zone</span></div>
+  </div>
+
+  <div class="struct-card">
+    <div class="name">MoveProposal</div>
+    <div class="desc">Ranked suggestion returned by StrategyNavigator.</div>
+    <div class="field"><span class="field-name">move_type</span><span class="field-type">str</span><span class="field-desc">"branch" | "merge" | "graft"</span></div>
+    <div class="field"><span class="field-name">parent_ids</span><span class="field-type">tuple[str, ...]</span><span class="field-desc">Parent(s) to move from</span></div>
+    <div class="field"><span class="field-name">suggested_theta</span><span class="field-type">dict[str, float]</span><span class="field-desc">Proposed hyperparameters</span></div>
+    <div class="field"><span class="field-name">merge_strategy</span><span class="field-type">str | None</span><span class="field-desc">Merge algorithm name</span></div>
+    <div class="field"><span class="field-name">merge_weights</span><span class="field-type">tuple[float, ...] | None</span><span class="field-desc">Per-parent weights</span></div>
+    <div class="field"><span class="field-name">direction_label</span><span class="field-type">str</span><span class="field-desc">e.g., "PC1 (+capacity)"</span></div>
+    <div class="field"><span class="field-name">score</span><span class="field-type">float</span><span class="field-desc">Estimated composite score</span></div>
+    <div class="field"><span class="field-name">reasoning</span><span class="field-type">str</span><span class="field-desc">Explanation of proposal</span></div>
+  </div>
+
+  <div class="struct-card">
+    <div class="name">TechniqueStats</div>
+    <div class="desc">Per-technique effectiveness tracking across the DAG.</div>
+    <div class="field"><span class="field-name">times_tried</span><span class="field-type">int</span><span class="field-desc">Number of nodes using this technique</span></div>
+    <div class="field"><span class="field-name">avg_task_delta</span><span class="field-type">float</span><span class="field-desc">Mean task score improvement vs parent</span></div>
+    <div class="field"><span class="field-name">avg_retention_delta</span><span class="field-type">float</span><span class="field-desc">Mean retention change (tracks forgetting risk)</span></div>
+    <div class="field"><span class="field-name">best_parent_delta</span><span class="field-type">float</span><span class="field-desc">Best single-step composite improvement</span></div>
+  </div>
+</section>
+
+<!-- ===== FILE LAYOUT ===== -->
+<section id="file-layout">
+  <h2>File System Layout</h2>
+  <p class="subtitle">All files autoTune creates and manages at runtime.</p>
+
+  <div class="file-tree">
+<span class="dir">project_root/</span>
+<span class="dir">&boxvr;&HorizontalLine; autotune/</span>                          <span class="comment">&larr; overlay directory</span>
+&boxvr;&HorizontalLine;&HorizontalLine; <span class="file">config.yaml</span>                    <span class="comment">&larr; project configuration</span>
+&boxvr;&HorizontalLine;&HorizontalLine; <span class="file">dag.json</span>                       <span class="comment">&larr; experiment DAG state</span>
+&boxvr;&HorizontalLine;&HorizontalLine; <span class="file">manifold_state.json</span>            <span class="comment">&larr; CMA-ES covariance + PCs</span>
+&boxvr;&HorizontalLine;&HorizontalLine; <span class="file">forgetting.json</span>                <span class="comment">&larr; danger zones + cliff threshold</span>
+&boxvr;&HorizontalLine;&HorizontalLine; <span class="file">results.tsv</span>                    <span class="comment">&larr; flat metrics table (all experiments)</span>
+&boxvr;&HorizontalLine;&HorizontalLine;
+<span class="dir">&boxvr;&HorizontalLine; orchestrator/</span>
+&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine; <span class="file">orchestrator.pid</span>             <span class="comment">&larr; daemon PID</span>
+&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine; <span class="file">gpu_state.json</span>               <span class="comment">&larr; current GPU allocations + queue</span>
+<span class="dir">&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine; queue/</span>                       <span class="comment">&larr; pending experiments</span>
+&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine; <span class="file">node_XXXX.json</span>
+<span class="dir">&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine; running/</span>                     <span class="comment">&larr; sentinel files (orphan recovery)</span>
+&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine; <span class="file">node_XXXX.json</span>
+<span class="dir">&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine; completed/</span>                   <span class="comment">&larr; result notifications</span>
+&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine; <span class="file">node_XXXX.json</span>
+<span class="dir">&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine; archive/</span>                     <span class="comment">&larr; per-experiment records</span>
+<span class="dir">&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine; node_XXXX/</span>
+&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine; <span class="file">spec.json</span>
+&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine; <span class="file">run.log</span>
+&boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine; <span class="file">result.json</span>
+<span class="dir">&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine; checkpoints/</span>                 <span class="comment">&larr; persistent checkpoint store</span>
+<span class="dir">   &boxur;&HorizontalLine; node_XXXX/</span>
+      &boxur;&HorizontalLine; <span class="file">pytorch_model.bin</span>       <span class="comment">(or .safetensors)</span>
+&boxvr;&HorizontalLine;&HorizontalLine;
+<span class="dir">&boxur;&HorizontalLine; viz/</span>
+   &boxur;&HorizontalLine; <span class="file">viz_server.pid</span>                 <span class="comment">&larr; dashboard PID</span>
+
+<span class="dir">.autotune_worktrees/</span>                   <span class="comment">&larr; isolated training worktrees</span>
+<span class="dir">&boxur;&HorizontalLine; node_XXXX/</span>                          <span class="comment">&larr; git worktree per experiment</span>
+   &boxvr;&HorizontalLine; <span class="comment">(project files at detached HEAD)</span>
+   &boxvr;&HorizontalLine; <span class="dir">.parent_checkpoint/</span>        <span class="comment">&larr; prepared parent checkpoint</span>
+   &boxvr;&HorizontalLine; <span class="dir">.checkpoint_output/</span>        <span class="comment">&larr; training saves here</span>
+   &boxur;&HorizontalLine; <span class="file">result.json</span>                <span class="comment">&larr; training writes here</span>
+  </div>
+</section>
+
+<!-- ===== ENV CONTRACT ===== -->
+<section id="env-contract">
+  <h2>Environment Variable Contract</h2>
+  <p class="subtitle">Variables set by the orchestrator that training scripts must read.</p>
+
+  <table>
+    <thead><tr><th>Variable</th><th>Set For</th><th>Value</th><th>Required by Script</th></tr></thead>
+    <tbody>
+      <tr><td><code>CUDA_VISIBLE_DEVICES</code></td><td>All</td><td>GPU index(es)</td><td>No (auto)</td></tr>
+      <tr><td><code>AUTOTUNE_GPU</code></td><td>All</td><td>0 (logical after masking)</td><td>Optional</td></tr>
+      <tr><td><code>AUTOTUNE_NODE_ID</code></td><td>All</td><td>node_XXXX</td><td>Optional (logging)</td></tr>
+      <tr><td><code>AUTOTUNE_CHECKPOINT_DIR</code></td><td>All</td><td>wt/.checkpoint_output/</td><td><strong>YES &mdash; save here</strong></td></tr>
+      <tr><td><code>AUTOTUNE_PARENT_CHECKPOINT</code></td><td>branch/merge/graft</td><td>wt/.parent_checkpoint/</td><td><strong>YES &mdash; load from here</strong></td></tr>
+      <tr><td><code>AUTOTUNE_MOVE_TYPE</code></td><td>All</td><td>seed | branch | merge | graft</td><td>Optional</td></tr>
+      <tr><td><code>AUTOTUNE_RETENTION_SCRIPT</code></td><td>If retention enabled</td><td>Path to eval script</td><td>Optional</td></tr>
+      <tr><td><code>AUTOTUNE_RETENTION_PROBE</code></td><td>If retention enabled</td><td>Path to probe set</td><td>Optional</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Training Script Contract</h3>
+  <p>Every training script <strong>must</strong>:</p>
+  <ol>
+    <li>Load parent checkpoint from <code>$AUTOTUNE_PARENT_CHECKPOINT</code></li>
+    <li>Save output checkpoint to <code>$AUTOTUNE_CHECKPOINT_DIR</code></li>
+    <li>Write <code>result.json</code> to working directory with at minimum: <code>{"status": "completed", "task_score": float, "cost": float}</code></li>
+  </ol>
+</section>
+
+<!-- ===== MODULE DEPS ===== -->
+<section id="deps">
+  <h2>Module Dependencies</h2>
+  <p class="subtitle">Internal dependency graph. Arrows point from dependent &rarr; dependency.</p>
+
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TB
+    subgraph ENTRY["Entry Point Layer"]
+        cli["<b>cli.py</b><br/>Click CLI &bull; 15 commands"]:::cli_mod
+    end
+
+    subgraph BRIDGE["Bridge &amp; Orchestration Layer"]
+        navigator["<b>navigator.py</b><br/>StrategyNavigator<br/>suggest_moves, scoring"]:::nav
+        space1[ ]:::hidden
+        orchestrator["<b>orchestrator.py</b><br/>ExperimentOrchestrator<br/>GPU scheduling, process mgmt"]:::orch
+    end
+
+    subgraph CORE["Standalone Core Layer"]
+        dag["<b>dag.py</b><br/>ExperimentDAG<br/>Pareto, UCB, CRUD"]:::dag
+        manifold["<b>manifold.py</b><br/>ManifoldNavigator<br/>CMA-ES, PCs"]:::manifold
+        forgetting["<b>forgetting.py</b><br/>ForgettingDetector<br/>cliffs, danger zones"]:::forget
+        runner["<b>runner.py</b><br/>ExperimentRunner<br/>git worktree, checkpoints"]:::runner
+        viz["<b>viz/server.py</b><br/>SSE Dashboard<br/>watchdog + aiohttp"]:::viz_mod
+    end
+
+    subgraph TYPES["Foundation Layer"]
+        types["<b>types.py</b> &mdash; frozen dataclasses: DAGNode, ManifoldState, DangerZone, MoveProposal, TechniqueStats, ScoringConfig"]:::types
+    end
+
+    cli --> navigator
+    cli --> orchestrator
+    cli --> dag
+    cli --> viz
+
+    navigator --> dag
+    navigator --> manifold
+    navigator --> forgetting
+
+    orchestrator --> dag
+    orchestrator --> manifold
+    orchestrator --> forgetting
+    orchestrator --> runner
+
+    dag --> types
+    manifold --> types
+    forgetting --> types
+
+    classDef cli_mod fill:#1a3a5c,stroke:#58a6ff,color:#58a6ff
+    classDef nav fill:#3a3300,stroke:#d29922,color:#d29922
+    classDef orch fill:#3d2800,stroke:#ff9f43,color:#ff9f43
+    classDef dag fill:#0d3344,stroke:#39d2c0,color:#39d2c0
+    classDef manifold fill:#2d1f4e,stroke:#bc8cff,color:#bc8cff
+    classDef forget fill:#3a1a1a,stroke:#f85149,color:#f85149
+    classDef runner fill:#1c2333,stroke:#8b949e,color:#e6edf3
+    classDef viz_mod fill:#0d3322,stroke:#3fb950,color:#3fb950
+    classDef types fill:#2d2d2d,stroke:#8b949e,color:#8b949e
+    classDef hidden fill:none,stroke:none,color:transparent
+
+    style ENTRY fill:transparent,stroke:#30363d,stroke-dasharray: 5 5,color:#8b949e
+    style BRIDGE fill:transparent,stroke:#30363d,stroke-dasharray: 5 5,color:#8b949e
+    style CORE fill:transparent,stroke:#30363d,stroke-dasharray: 5 5,color:#8b949e
+    style TYPES fill:transparent,stroke:#30363d,stroke-dasharray: 5 5,color:#8b949e
+    </pre>
+  </div>
+
+  <h3>Dependency Rules</h3>
+  <table>
+    <thead><tr><th>Layer</th><th>Modules</th><th>Dependencies</th></tr></thead>
+    <tbody>
+      <tr><td>Standalone</td><td>dag, manifold, forgetting, runner</td><td>types.py only (no internal deps)</td></tr>
+      <tr><td>Bridge</td><td>navigator</td><td>dag + manifold + forgetting</td></tr>
+      <tr><td>Orchestration</td><td>orchestrator</td><td>runner + manifold + forgetting + dag</td></tr>
+      <tr><td>Entry Point</td><td>cli</td><td>dag + navigator + orchestrator + viz</td></tr>
+      <tr><td>Visualization</td><td>viz/server</td><td>File-system only (reads dag.json, manifold_state.json)</td></tr>
+    </tbody>
+  </table>
+</section>
+
+</main>
+
+<script>
+  // Initialize mermaid with dark theme
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#1a3a5c',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#58a6ff',
+      lineColor: '#58a6ff',
+      secondaryColor: '#2d1f4e',
+      tertiaryColor: '#1c2333',
+      background: '#161b22',
+      mainBkg: '#161b22',
+      nodeBorder: '#30363d',
+      clusterBkg: '#1c2333',
+      clusterBorder: '#30363d',
+      titleColor: '#e6edf3',
+      edgeLabelBackground: '#161b22',
+      noteTextColor: '#e6edf3',
+      noteBkgColor: '#1c2333',
+      noteBorderColor: '#30363d',
+      actorTextColor: '#e6edf3',
+      actorBkg: '#1a3a5c',
+      actorBorder: '#58a6ff',
+      signalColor: '#58a6ff',
+      activationBkgColor: '#2d1f4e',
+      activationBorderColor: '#bc8cff',
+      sequenceNumberColor: '#0d1117',
+    },
+    flowchart: { curve: 'basis', padding: 16 },
+    sequence: { mirrorActors: false, messageMargin: 40 },
+  });
+
+  // Active nav link highlighting on scroll
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('nav a');
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(link => link.classList.remove('active'));
+        const active = document.querySelector(`nav a[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+
+  sections.forEach(section => observer.observe(section));
+</script>
+
+<!-- Manifold projection canvas -->
+<script>
+(function() {
+  const canvas = document.getElementById('manifold-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const pad = 60;
+
+  // Node data: [pc1, pc2, label, rank]
+  // Simulated projections consistent with the covariance and eigenvectors described
+  const nodes = [
+    [-0.15, -0.10, '0001', 0],
+    [-0.05,  0.05, '0002', 0],
+    [ 0.18, -0.20, '0003', 0],
+    [ 0.12,  0.25, '0004', 1],
+    [ 0.41,  0.83, '0005', 2],  // cliff
+    [ 0.08, -0.02, '0006', 0],
+    [ 0.22, -0.08, '0007', 1],
+    [ 0.30,  0.10, '0008', 0],
+    [-0.02,  0.02, '0009', 2],
+  ];
+
+  const dangerCenter = [0.41, 0.83];
+  const dangerRadius = 0.11;
+
+  // Axis range
+  const allX = nodes.map(n => n[0]);
+  const allY = nodes.map(n => n[1]);
+  const xMin = Math.min(...allX, dangerCenter[0] - dangerRadius) - 0.1;
+  const xMax = Math.max(...allX, dangerCenter[0] + dangerRadius) + 0.1;
+  const yMin = Math.min(...allY, dangerCenter[1] - dangerRadius) - 0.1;
+  const yMax = Math.max(...allY, dangerCenter[1] + dangerRadius) + 0.1;
+
+  function toX(v) { return pad + (v - xMin) / (xMax - xMin) * (W - 2 * pad); }
+  function toY(v) { return H - pad - (v - yMin) / (yMax - yMin) * (H - 2 * pad); }
+
+  const rankColors = { 0: '#3fb950', 1: '#d29922', 2: '#f85149' };
+
+  // Background
+  ctx.fillStyle = '#1c2333';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(48,54,61,0.6)';
+  ctx.lineWidth = 0.5;
+  for (let v = Math.ceil(xMin * 10) / 10; v <= xMax; v += 0.1) {
+    ctx.beginPath(); ctx.moveTo(toX(v), pad); ctx.lineTo(toX(v), H - pad); ctx.stroke();
+  }
+  for (let v = Math.ceil(yMin * 10) / 10; v <= yMax; v += 0.1) {
+    ctx.beginPath(); ctx.moveTo(pad, toY(v)); ctx.lineTo(W - pad, toY(v)); ctx.stroke();
+  }
+
+  // Axes
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad, H - pad); ctx.lineTo(W - pad, H - pad); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad, pad); ctx.lineTo(pad, H - pad); ctx.stroke();
+
+  // Axis labels
+  ctx.fillStyle = '#58a6ff';
+  ctx.font = '13px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('PC1 (capacity: lr\u2191 + rank\u2191)', W / 2, H - 12);
+  ctx.save();
+  ctx.translate(16, H / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = '#bc8cff';
+  ctx.fillText('PC2 (efficiency: lr\u2191, rank\u2193)', 0, 0);
+  ctx.restore();
+
+  // Tick labels
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '10px SF Mono, monospace';
+  ctx.textAlign = 'center';
+  for (let v = Math.ceil(xMin * 5) / 5; v <= xMax; v += 0.2) {
+    ctx.fillText(v.toFixed(1), toX(v), H - pad + 16);
+  }
+  ctx.textAlign = 'right';
+  for (let v = Math.ceil(yMin * 5) / 5; v <= yMax; v += 0.2) {
+    ctx.fillText(v.toFixed(1), pad - 8, toY(v) + 4);
+  }
+
+  // Danger zone
+  const dzX = toX(dangerCenter[0]), dzY = toY(dangerCenter[1]);
+  const dzR = (dangerRadius / (xMax - xMin)) * (W - 2 * pad);
+  ctx.beginPath();
+  ctx.arc(dzX, dzY, dzR, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(248, 81, 73, 0.12)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(248, 81, 73, 0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(248, 81, 73, 0.7)';
+  ctx.font = '10px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('DANGER ZONE', dzX, dzY + dzR + 14);
+  ctx.fillText('r=0.11', dzX, dzY + dzR + 26);
+
+  // Mean centroid
+  const meanPC1 = 0.08, meanPC2 = 0.04;
+  ctx.beginPath();
+  ctx.arc(toX(meanPC1), toY(meanPC2), 4, 0, Math.PI * 2);
+  ctx.fillStyle = '#e6edf3';
+  ctx.fill();
+  ctx.strokeStyle = '#e6edf3';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = '#e6edf3';
+  ctx.font = '10px -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('\u03bc (centroid)', toX(meanPC1) + 8, toY(meanPC2) - 6);
+
+  // PC direction arrows from centroid
+  function drawArrow(fromX, fromY, toEndX, toEndY, color, label) {
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toEndX, toEndY);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Arrowhead
+    const angle = Math.atan2(toEndY - fromY, toEndX - fromX);
+    ctx.beginPath();
+    ctx.moveTo(toEndX, toEndY);
+    ctx.lineTo(toEndX - 10 * Math.cos(angle - 0.3), toEndY - 10 * Math.sin(angle - 0.3));
+    ctx.lineTo(toEndX - 10 * Math.cos(angle + 0.3), toEndY - 10 * Math.sin(angle + 0.3));
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    // Label
+    ctx.fillStyle = color;
+    ctx.font = 'bold 11px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, toEndX + 6, toEndY + 4);
+  }
+
+  const arrowLen = 60;
+  // PC1 direction (roughly +x, slightly -y in plot coords since higher capacity)
+  drawArrow(toX(meanPC1), toY(meanPC2),
+            toX(meanPC1) + arrowLen * 0.9, toY(meanPC2) - arrowLen * 0.3,
+            '#58a6ff', 'PC1');
+  // PC2 direction (roughly +y)
+  drawArrow(toX(meanPC1), toY(meanPC2),
+            toX(meanPC1) + arrowLen * 0.2, toY(meanPC2) - arrowLen * 0.85,
+            '#bc8cff', 'PC2');
+
+  // Nodes
+  nodes.forEach(([pc1, pc2, label, rank]) => {
+    const x = toX(pc1), y = toY(pc2);
+    const color = rankColors[rank];
+    const isCliff = label === '0005';
+
+    // Glow for rank 0
+    if (rank === 0) {
+      ctx.beginPath();
+      ctx.arc(x, y, 10, 0, Math.PI * 2);
+      ctx.fillStyle = color + '30';
+      ctx.fill();
+    }
+
+    // Dot
+    ctx.beginPath();
+    ctx.arc(x, y, isCliff ? 7 : 6, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = '#0d1117';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Cliff marker
+    if (isCliff) {
+      ctx.beginPath();
+      ctx.arc(x, y, 12, 0, Math.PI * 2);
+      ctx.strokeStyle = '#f85149';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Label
+    ctx.fillStyle = '#e6edf3';
+    ctx.font = 'bold 11px SF Mono, monospace';
+    ctx.textAlign = 'center';
+    const offsetY = (label === '0004' || label === '0005') ? -14 : 18;
+    ctx.fillText(label, x, y + offsetY);
+  });
+
+  // Title
+  ctx.fillStyle = '#e6edf3';
+  ctx.font = 'bold 14px -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Manifold Projection: 9 Experiments onto PC1 vs PC2', pad, 24);
+})();
+</script>
+
+</body>
+</html>
