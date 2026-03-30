@@ -183,16 +183,13 @@ class ExperimentOrchestrator:
         gpu_details = []
         for gpu in gpus:
             alloc = self.gpu_allocations.get(gpu.index, [])
-            alloc_vram = sum(
-                self.running[nid].estimated_vram_gb for nid in alloc if nid in self.running
-            )
             gpu_details.append(
                 {
                     "index": gpu.index,
                     "total_mb": gpu.total_mb,
                     "free_mb": gpu.free_mb,
                     "schedulable_free_gb": round(
-                        gpu.free_gb - self.safety_margin_gb - alloc_vram, 2
+                        gpu.free_gb - self.safety_margin_gb, 2
                     ),
                     "running": alloc,
                     "utilization_pct": gpu.utilization,
@@ -257,20 +254,21 @@ class ExperimentOrchestrator:
     def _find_best_gpu(self, needed_gb: float) -> int | None:
         """Find the GPU with tightest fit that can accommodate needed_gb VRAM.
 
+        Uses nvidia-smi reported free memory (which already reflects running
+        processes) minus a safety margin.  The max_per_gpu concurrency limit
+        prevents over-scheduling beyond what the GPU can handle.
+
         Returns:
             GPU index, or None if no GPU has sufficient free memory.
         """
         candidates: list[tuple[int, float]] = []
+        gpus = query_gpus()
         for gpu_idx, running_ids in self.gpu_allocations.items():
             if len(running_ids) >= self.max_per_gpu:
                 continue
-            alloc_vram = sum(
-                self.running[nid].estimated_vram_gb for nid in running_ids if nid in self.running
-            )
-            gpus = query_gpus()
             gpu_info = next((g for g in gpus if g.index == gpu_idx), None)
             free_gb = gpu_info.free_gb if gpu_info else 24.0  # virtual GPU fallback
-            schedulable = free_gb - self.safety_margin_gb - alloc_vram
+            schedulable = free_gb - self.safety_margin_gb
             if schedulable >= needed_gb:
                 candidates.append((gpu_idx, schedulable))
         if not candidates:
@@ -303,18 +301,25 @@ class ExperimentOrchestrator:
         if queue_file and Path(queue_file).exists():
             Path(queue_file).unlink()
 
-        base_commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=self.project_root,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
+        base_commit = spec.get("base_commit")
+        if not base_commit:
+            base_commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
         try:
             wt_path = self.runner.create_worktree(base_commit, node_id)
         except subprocess.CalledProcessError as e:
             self._mark_crashed(node_id, spec, f"Worktree creation failed: {e}")
             return
+
+        # Apply file overlay if files were snapshot at queue time.
+        overlay_dir = archive_node / "overlay"
+        if overlay_dir.exists():
+            self.runner.apply_overlay(wt_path, overlay_dir, [])
 
         parent_ckpt_dir = wt_path / ".parent_checkpoint"
         try:
@@ -436,9 +441,7 @@ class ExperimentOrchestrator:
             status = self._infer_failure_status(node_id, returncode)
 
         elapsed = time.time() - exp.started_at
-        metrics = result.get("metrics", {}) if result else {}
-        composite = result.get("composite") if result else None
-        peak_vram = result.get("peak_vram_mb") if result else None
+        metrics, composite, peak_vram = self._normalize_result(result)
 
         completion: dict[str, Any] = {
             "node_id": node_id,
@@ -488,6 +491,42 @@ class ExperimentOrchestrator:
             return "crash"
         return "completed"
 
+    @staticmethod
+    def _normalize_result(
+        result: dict | None,
+    ) -> tuple[dict[str, Any], float | None, int | None]:
+        """Normalize a training script's result.json into internal format.
+
+        Accepts both the flat format documented for training scripts::
+
+            {"status": "completed", "task_score": 0.85, "cost": 1.5}
+
+        and the nested format used internally::
+
+            {"status": "completed", "metrics": {"task_score": 0.85}, "composite": 0.85}
+
+        Returns:
+            (metrics_dict, composite, peak_vram_mb) tuple.
+        """
+        if not result:
+            return {}, None, None
+
+        metrics = result.get("metrics", {})
+        # If flat keys exist at top level but metrics is empty, build metrics
+        # from the flat fields so both formats are accepted.
+        _METRIC_KEYS = ("task_score", "retention_score", "cost")
+        if not metrics:
+            flat = {k: result[k] for k in _METRIC_KEYS if k in result}
+            if flat:
+                metrics = flat
+
+        composite = result.get("composite")
+        if composite is None and metrics.get("task_score") is not None:
+            composite = metrics["task_score"]
+
+        peak_vram = result.get("peak_vram_mb")
+        return metrics, composite, peak_vram
+
     def _tail_log(self, log_path: Path, n: int) -> str:
         """Return the last n lines of a log file."""
         if not log_path.exists():
@@ -515,7 +554,8 @@ class ExperimentOrchestrator:
                 config = yaml.safe_load(f) or {}
 
         if status == "completed":
-            metrics = completion.get("metrics", {})
+            metrics = dict(completion.get("metrics", {}))
+            metrics["composite"] = completion.get("composite")
             metrics["checkpoint_id"] = (
                 node_id if (self.checkpoint_store / node_id).exists() else None
             )
@@ -544,6 +584,12 @@ class ExperimentOrchestrator:
                 objectives = [(n.composite or 0.0,) for n in executed]
                 manifold.update(points, objectives)
                 manifold.save(manifold_path)
+                # Project all executed nodes onto the updated manifold so that
+                # danger zone centers are grounded in real coordinates.
+                for ex_node in executed:
+                    coords = manifold.project(ex_node.theta)
+                    if coords:
+                        dag.update_manifold_coords(ex_node.id, coords)
 
         if status == "completed":
             node = dag.get_node(node_id)

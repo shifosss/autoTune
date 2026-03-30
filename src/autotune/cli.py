@@ -431,18 +431,43 @@ def _submit_queue(root: Path, node_id: str, files: tuple[str, ...]) -> None:
     if node.status != "pending":
         raise click.ClickException(f"Node {node_id} is not pending (status={node.status}).")
 
+    import subprocess
+
+    base_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() or None
+
     spec = {
         "node_id": node_id,
         "theta": dict(node.theta),
         "parent_ids": list(node.parent_ids),
         "move_type": node.move_type,
         "files": list(files),
+        "base_commit": base_commit,
     }
+    # Snapshot listed files into overlay directory so they are applied to the
+    # worktree at launch time, even if they are uncommitted or modified later.
+    if files:
+        import shutil
+
+        overlay_dir = root / "autotune" / "orchestrator" / "archive" / node_id / "overlay"
+        overlay_dir.mkdir(parents=True, exist_ok=True)
+        for rel in files:
+            src = root / rel
+            if not src.exists():
+                raise click.ClickException(f"File not found: {rel}")
+            dest = overlay_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+
     queue_dir = root / "autotune" / "orchestrator" / "queue"
     queue_dir.mkdir(parents=True, exist_ok=True)
     queue_file = queue_dir / f"{node_id}.json"
     queue_file.write_text(json_mod.dumps(spec, indent=2))
-    click.echo(f"Queued {node_id} for execution.")
+    click.echo(f"Queued {node_id} for execution (commit={base_commit or 'unknown'}).")
 
 
 @main.command()

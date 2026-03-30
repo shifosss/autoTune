@@ -282,6 +282,11 @@ class ExperimentRunner:
     ) -> None:
         """Merge multiple parent checkpoints into a single checkpoint.
 
+        Assumes all parent checkpoints share the same model architecture,
+        tokenizer, and base initialization. Designed for adapter-style
+        (LoRA/PEFT) checkpoints from a shared base model. Results are
+        undefined for divergent architectures.
+
         Args:
             parent_ids: IDs of parent nodes whose checkpoints to merge.
             weights: Per-parent weights for merging.
@@ -292,15 +297,30 @@ class ExperimentRunner:
         Raises:
             ImportError: If torch is not installed.
             NotImplementedError: If strategy is "selective".
-            ValueError: If strategy is unknown.
+            ValueError: If strategy is unknown or checkpoints are incompatible.
         """
         state_dicts = [self._load_state_dict(checkpoint_store / pid) for pid in parent_ids]
 
         if strategy == "weighted_avg":
             merged = {}
             common_keys = set(state_dicts[0].keys())
+            all_keys = set(state_dicts[0].keys())
             for sd in state_dicts[1:]:
                 common_keys &= set(sd.keys())
+                all_keys |= set(sd.keys())
+            if not common_keys:
+                raise ValueError(
+                    f"No common keys across parent checkpoints {parent_ids}. "
+                    "Checkpoints may have incompatible architectures."
+                )
+            overlap = len(common_keys) / len(all_keys) if all_keys else 0.0
+            if overlap < 0.5:
+                logger.warning(
+                    "Low key overlap (%.0f%%) merging %s — checkpoints may have "
+                    "divergent architectures",
+                    overlap * 100,
+                    parent_ids,
+                )
             for key in common_keys:
                 merged[key] = sum(w * sd[key] for w, sd in zip(weights, state_dicts))
             self._save_state_dict(merged, dest_path / "pytorch_model.bin", "pytorch")
@@ -336,6 +356,10 @@ class ExperimentRunner:
 
         Computes delta = source - source_parent, then grafted = target_parent + delta.
 
+        Assumes all three checkpoints share the same model architecture and
+        base initialization. Designed for adapter-style (LoRA/PEFT) checkpoints.
+        Results are undefined for divergent architectures.
+
         Args:
             source_id: ID of the experiment whose technique delta to apply.
             source_parent_id: ID of the source's parent checkpoint.
@@ -345,10 +369,28 @@ class ExperimentRunner:
 
         Raises:
             ImportError: If torch is not installed.
+            ValueError: If checkpoints have incompatible key sets.
         """
         source = self._load_state_dict(checkpoint_store / source_id)
         source_parent = self._load_state_dict(checkpoint_store / source_parent_id)
         target_parent = self._load_state_dict(checkpoint_store / target_parent_id)
+
+        delta_keys = set(source.keys()) & set(source_parent.keys())
+        if not delta_keys:
+            raise ValueError(
+                f"No common keys between source ({source_id}) and source_parent "
+                f"({source_parent_id}). Cannot compute technique delta."
+            )
+        all_keys = set(source.keys()) | set(source_parent.keys())
+        overlap = len(delta_keys) / len(all_keys) if all_keys else 0.0
+        if overlap < 0.5:
+            logger.warning(
+                "Low key overlap (%.0f%%) between source %s and source_parent %s "
+                "— graft delta may be incomplete",
+                overlap * 100,
+                source_id,
+                source_parent_id,
+            )
 
         grafted = {}
         for key in target_parent:

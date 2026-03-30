@@ -780,10 +780,14 @@ Every training script **must**:
 
 1. Load parent checkpoint from `$AUTOTUNE_PARENT_CHECKPOINT`
 2. Save output checkpoint to `$AUTOTUNE_CHECKPOINT_DIR`
-3. Write `result.json` to working directory with at minimum:
+3. Write `result.json` to working directory. Both flat and nested formats are accepted:
    ```json
-   {"status": "completed", "task_score": 0.85, "cost": 1.5}
+   {"status": "completed", "task_score": 0.85, "cost": 1.5, "checkpoint_saved": true}
    ```
+   ```json
+   {"status": "completed", "metrics": {"task_score": 0.85, "cost": 1.5}, "composite": 0.85, "checkpoint_saved": true}
+   ```
+   If `composite` is omitted, it defaults to `task_score`.
 
 ---
 
