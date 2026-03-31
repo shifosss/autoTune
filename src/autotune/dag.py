@@ -346,8 +346,9 @@ class ExperimentDAG:
     ) -> None:
         """Set the manifold projection coordinates for an executed node.
 
-        Called after manifold.update() to ground each node's position in the
-        learned PC subspace. Required for danger zone filtering to work.
+        Called after the current manifold state is loaded or updated to ground
+        each node's position in the active coordinate system. Required for
+        danger zone filtering to work.
 
         Args:
             node_id: The node to update.
