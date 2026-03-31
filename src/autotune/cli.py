@@ -431,18 +431,43 @@ def _submit_queue(root: Path, node_id: str, files: tuple[str, ...]) -> None:
     if node.status != "pending":
         raise click.ClickException(f"Node {node_id} is not pending (status={node.status}).")
 
+    import subprocess
+
+    base_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() or None
+
     spec = {
         "node_id": node_id,
         "theta": dict(node.theta),
         "parent_ids": list(node.parent_ids),
         "move_type": node.move_type,
         "files": list(files),
+        "base_commit": base_commit,
     }
+    # Snapshot listed files into overlay directory so they are applied to the
+    # worktree at launch time, even if they are uncommitted or modified later.
+    if files:
+        import shutil
+
+        overlay_dir = root / "autotune" / "orchestrator" / "archive" / node_id / "overlay"
+        overlay_dir.mkdir(parents=True, exist_ok=True)
+        for rel in files:
+            src = root / rel
+            if not src.exists():
+                raise click.ClickException(f"File not found: {rel}")
+            dest = overlay_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+
     queue_dir = root / "autotune" / "orchestrator" / "queue"
     queue_dir.mkdir(parents=True, exist_ok=True)
     queue_file = queue_dir / f"{node_id}.json"
     queue_file.write_text(json_mod.dumps(spec, indent=2))
-    click.echo(f"Queued {node_id} for execution.")
+    click.echo(f"Queued {node_id} for execution (commit={base_commit or 'unknown'}).")
 
 
 @main.command()
@@ -562,3 +587,129 @@ def reconcile() -> None:
     dag.save()
     meta = dag.meta()
     click.echo(f"Reconciled. Executed: {meta.total_executed}, Best: {meta.best_composite}")
+
+
+@main.group()
+def orchestrator() -> None:
+    """Manage the GPU scheduler daemon."""
+
+
+@orchestrator.command("start")
+def orch_start() -> None:
+    """Start the orchestrator daemon (foreground)."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.orchestrator import ExperimentOrchestrator
+
+    orch = ExperimentOrchestrator(root)
+    orch.cmd_start()
+
+
+@orchestrator.command("stop")
+def orch_stop() -> None:
+    """Stop the running orchestrator."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.orchestrator import ExperimentOrchestrator
+
+    orch = ExperimentOrchestrator(root)
+    orch.cmd_stop()
+
+
+@orchestrator.command("status")
+def orch_status() -> None:
+    """Show orchestrator status."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.orchestrator import ExperimentOrchestrator
+
+    orch = ExperimentOrchestrator(root)
+    orch.cmd_status()
+
+
+@main.command()
+@click.option("--prune", is_flag=True, help="Delete checkpoints for pareto_rank >= 2")
+def checkpoints(prune: bool) -> None:
+    """List or prune managed checkpoints."""
+    import shutil
+
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+
+    store = root / "autotune" / "orchestrator" / "checkpoints"
+    if not store.exists():
+        click.echo("No checkpoints directory.")
+        return
+
+    dag_path = root / "autotune" / "dag.json"
+    node_ranks: dict[str, int | None] = {}
+    if dag_path.exists():
+        from autotune.dag import ExperimentDAG
+
+        dag = ExperimentDAG.load(dag_path)
+        for node in dag.all_executed():
+            node_ranks[node.id] = node.pareto_rank
+
+    ckpt_dirs = sorted(d for d in store.iterdir() if d.is_dir())
+    if not ckpt_dirs:
+        click.echo("No checkpoints found.")
+        return
+
+    pruned = 0
+    for d in ckpt_dirs:
+        node_id = d.name
+        rank = node_ranks.get(node_id)
+        size_mb = sum(f.stat().st_size for f in d.rglob("*") if f.is_file()) / (1024 * 1024)
+
+        if prune and rank is not None and rank >= 2:
+            shutil.rmtree(d)
+            click.echo(f"  Pruned: {node_id} (rank={rank}, {size_mb:.1f}MB)")
+            pruned += 1
+        else:
+            click.echo(f"  {node_id}: rank={rank}, {size_mb:.1f}MB")
+
+    if prune:
+        click.echo(f"Pruned {pruned} checkpoints.")
+
+
+@main.group()
+def viz() -> None:
+    """Manage the visualization dashboard server."""
+
+
+@viz.command("start")
+@click.option("--port", default=8420, help="HTTP port")
+def viz_start(port: int) -> None:
+    """Start the visualization dashboard (foreground)."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.viz.server import cmd_start
+
+    cmd_start(port=port, project_root=root)
+
+
+@viz.command("stop")
+def viz_stop() -> None:
+    """Stop the visualization dashboard."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.viz.server import cmd_stop
+
+    cmd_stop(project_root=root)
+
+
+@viz.command("status")
+def viz_status() -> None:
+    """Show visualization server status."""
+    root = _find_project_root()
+    if not root:
+        raise click.ClickException("Not in an autoTune project.")
+    from autotune.viz.server import cmd_status
+
+    cmd_status(project_root=root)

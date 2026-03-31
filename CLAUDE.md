@@ -136,40 +136,62 @@ Consult these specs for algorithm details (DAG-UCB scoring formulas, Pareto rank
 
 ### 2. Subagent Routing Rules
 
-#### 2.1 Parallel dispatch (All conditions must be met)
+#### 2.1 Dispatch Modes
+
+**Parallel** (all conditions must be met):
 
 - 3+ unrelated tasks or independent domains
 - No shared state between tasks
 - Clear file boundaries with no overlap
 
-#### 2.2 Sequential dispatch (ANY condition triggers)
+**Sequential** (any condition triggers):
 
 - Tasks have dependencies (B needs output from A)
 - Shared files or state (merge conflict risk)
 - Unclear scope (need to understand before proceeding)
 
-#### 2.3 Background dispatch
+**Background** (non-blocking):
 
 - Research or analysis tasks (not file modifications)
 - Results aren't blocking current work
 
-#### 2.4 Model Tier Policy
+**In agent teams:** Subagents may spawn their own subagents for parallel, independent tasks. The same dispatch rules above apply — parallel only when no shared state or file overlap.
 
-Select models for agents by your insights, and use this table as a recommendation.
+#### 2.2 Subagent Type Routing
 
-|   Tier   | Model        | Use when                                                                                                                                                      |
-| :------: | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-|  Heavy   | `opus 4.6`   | Architecture design, multi-file refactors, novel algorithm implementation,<br />security/correctness audits, debugging subtle concurrency or numerical issues |
-| Standard | `sonnet 4.6` | Everyday coding, code review, test writing, config generation, standard debugging, API integration                                                            |
-|  Light   | `Haiku`      | Codebase search, doc generation, dependency checks, lint/format, log parsing, boilerplate scaffolding                                                         |
+Select the subagent type and model that matches the task. When multiple could apply, prefer the more specific type. Use the model column as a recommendation — override by your judgment when warranted.
+
+| Task                                  | Subagent Type                     | Model    | Notes                                                    |
+| ------------------------------------- | --------------------------------- | -------- | -------------------------------------------------------- |
+| Quick file/symbol lookup              | `explorer`                        | `haiku`  | Read-only. "Where is X defined?"                         |
+| Deep multi-round codebase exploration | `Explore`                         | `haiku`  | Broader than `explorer`, use for unfamiliar areas        |
+| Architecture design, system tradeoffs | `architect`                       | `opus`   | ML pipelines, multi-service, cross-cutting concerns      |
+| Step-by-step implementation planning  | `Plan`                            | `opus`   | Critical files, dependencies, architectural tradeoffs    |
+| Feature implementation, refactoring   | `implementer`                     | `sonnet` | General-purpose coding workhorse                         |
+| Standard code review                  | `code-reviewer`                   | `sonnet` | Style, error handling, test coverage, type safety        |
+| Milestone code review (against plan)  | `superpowers:code-reviewer`       | `sonnet` | After completing a major plan step                       |
+| Deep code review (bugs, security)     | `feature-dev:code-reviewer`       | `sonnet` | Logic errors, vulnerabilities, confidence-filtered       |
+| Trace execution paths, map layers     | `feature-dev:code-explorer`       | `sonnet` | Understand existing features before new development      |
+| Design feature architecture           | `feature-dev:code-architect`      | `opus`   | Implementation blueprints from existing patterns         |
+| Simplify/refine changed code          | `code-simplifier:code-simplifier` | `haiku`  | Clarity and maintainability pass on recent changes       |
+| Write or expand tests                 | `test-writer`                     | `sonnet` | Unit, integration, fixtures for ML pipelines             |
+| Debug subtle/multi-component bugs     | `debugger`                        | `opus`   | Numerical instability, race conditions, shape mismatches |
+| Security & correctness audit          | `security-auditor`                | `opus`   | Credentials, user data, prompt injection, pre-deploy     |
+| Dependency audit                      | `dep-checker`                     | `haiku`  | Version conflicts, torch/transformers compatibility      |
+| Documentation generation              | `doc-writer`                      | `haiku`  | README, docstrings, API docs, changelogs, ADRs           |
+| Log/output analysis                   | `log-parser`                      | `haiku`  | Training logs, error logs, CI/CD build outputs           |
+| Eval framework & metrics design       | `eval-designer`                   | `sonnet` | Experiment configs, benchmarks, agent scoring            |
+| Scaffolding & boilerplate             | `scaffolder`                      | `haiku`  | Project structure, config templates, Dockerfiles         |
+| LLM prompt design & debugging         | `prompt-engineer`                 | `sonnet` | Prompt templates, few-shot selection, format specs       |
 
 ### 3. Domain Parallel Patterns
 
-When implementing features across domains, spawn parallel agents:
+When implementing features across domains, spawn parallel agents with specific subagent types:
 
-- **Model/training agent** : Model definitions, training loops, loss functions, data pipelines
-- **Serving/infra agent** : FastAPI endpoints, Docker, deployment configs, CI/CD
-- **Evaluation agent** : Metrics, benchmarks, experiment tracking, visualization
+- **Algorithm/core agent** (`implementer`): DAG operations, manifold math, forgetting detection, Pareto ranking
+- **Infrastructure agent** (`implementer`): CLI commands, orchestrator, runner, git worktree ops
+- **Evaluation agent** (`eval-designer`): Metrics, experiment tracking, benchmark suites
+- **Viz/frontend agent** (`implementer`): SSE server, dashboard components, 3D graph rendering
 
 Each agent owns their domain. No file overlap.
 
@@ -204,6 +226,7 @@ Each agent owns their domain. No file overlap.
 ### 8. Version Control
 
 - Always manage the repo using git
+- Create different branch and work within it instead of direct commit into main branch
 - Log the progress after each stage/step/task is finished
 
 ## Task Management
@@ -220,3 +243,7 @@ Each agent owns their domain. No file overlap.
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
 - **No Laziness**: Find root causes. No temporary fixes, Senior developer standards.
 - **Minimat Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+
+## Codex Cooperation
+
+Use GPT-5.4 when dispatching job to codex using codex-cli mcp.

@@ -341,6 +341,22 @@ class ExperimentDAG:
         logger.warning("Marked %s as failed (status=%s, error=%s)", node_id, status, error)
         return self._node_to_dataclass(node)
 
+    def update_manifold_coords(
+        self, node_id: str, coords: tuple[float, ...]
+    ) -> None:
+        """Set the manifold projection coordinates for an executed node.
+
+        Called after manifold.update() to ground each node's position in the
+        learned PC subspace. Required for danger zone filtering to work.
+
+        Args:
+            node_id: The node to update.
+            coords: Manifold-space coordinates from ManifoldNavigator.project().
+        """
+        node = self._data["nodes"].get(node_id)
+        if node is not None:
+            node["manifold_coords"] = list(coords)
+
     def cancel(self, node_id: str) -> DAGNode:
         """Cancel a proposed node.
 

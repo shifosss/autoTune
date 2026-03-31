@@ -194,3 +194,217 @@ class ExperimentRunner:
             capture_output=True,
         )
         logger.debug("Pruned stale worktrees in %s", self._root)
+
+    def _load_state_dict(self, path: Path) -> dict:
+        """Load a model state_dict from a file or directory.
+
+        Supports .pt, .bin, .safetensors files and HuggingFace directories.
+        Raises ImportError if neither torch nor safetensors is installed.
+
+        Args:
+            path: File path or directory containing the checkpoint.
+
+        Returns:
+            The loaded state dict.
+
+        Raises:
+            FileNotFoundError: If no checkpoint file found in the directory.
+            ImportError: If torch is not installed.
+        """
+        if path.is_dir():
+            candidates = [
+                "adapter_model.safetensors",
+                "pytorch_model.bin",
+                "model.safetensors",
+            ]
+            for name in candidates:
+                if (path / name).exists():
+                    return self._load_state_dict(path / name)
+            raise FileNotFoundError(f"No checkpoint file found in {path}")
+
+        # Try safetensors first
+        if path.suffix == ".safetensors":
+            try:
+                from safetensors.torch import load_file
+
+                return load_file(str(path))
+            except (ImportError, ModuleNotFoundError):
+                raise ImportError(
+                    "safetensors is required to load .safetensors files. "
+                    "Install with: uv pip install -e '.[safetensors]'"
+                )
+
+        # Fall back to torch
+        try:
+            import torch
+
+            return torch.load(str(path), weights_only=True)
+        except (ImportError, ModuleNotFoundError):
+            pass
+
+        raise ImportError(
+            "torch is required for checkpoint operations. "
+            "Install with: uv pip install -e '.[torch]'"
+        )
+
+    def _save_state_dict(self, state_dict: dict, path: Path, fmt: str) -> None:
+        """Save a state_dict to disk.
+
+        Args:
+            state_dict: The state dict to save.
+            path: Destination file path.
+            fmt: Format — "safetensors" or "pytorch".
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if fmt == "safetensors":
+            try:
+                from safetensors.torch import save_file
+
+                save_file(state_dict, str(path))
+                return
+            except (ImportError, ModuleNotFoundError):
+                raise ImportError(
+                    "safetensors is required to save in safetensors format. "
+                    "Install with: uv pip install -e '.[safetensors]'"
+                )
+
+        import torch
+
+        torch.save(state_dict, str(path))
+
+    def merge_checkpoints(
+        self,
+        parent_ids: tuple[str, ...],
+        weights: tuple[float, ...],
+        strategy: str,
+        checkpoint_store: Path,
+        dest_path: Path,
+    ) -> None:
+        """Merge multiple parent checkpoints into a single checkpoint.
+
+        Assumes all parent checkpoints share the same model architecture,
+        tokenizer, and base initialization. Designed for adapter-style
+        (LoRA/PEFT) checkpoints from a shared base model. Results are
+        undefined for divergent architectures.
+
+        Args:
+            parent_ids: IDs of parent nodes whose checkpoints to merge.
+            weights: Per-parent weights for merging.
+            strategy: One of "weighted_avg", "compose", "selective".
+            checkpoint_store: Root directory containing per-node checkpoint dirs.
+            dest_path: Where to write the merged checkpoint.
+
+        Raises:
+            ImportError: If torch is not installed.
+            NotImplementedError: If strategy is "selective".
+            ValueError: If strategy is unknown or checkpoints are incompatible.
+        """
+        state_dicts = [self._load_state_dict(checkpoint_store / pid) for pid in parent_ids]
+
+        if strategy == "weighted_avg":
+            merged = {}
+            common_keys = set(state_dicts[0].keys())
+            all_keys = set(state_dicts[0].keys())
+            for sd in state_dicts[1:]:
+                common_keys &= set(sd.keys())
+                all_keys |= set(sd.keys())
+            if not common_keys:
+                raise ValueError(
+                    f"No common keys across parent checkpoints {parent_ids}. "
+                    "Checkpoints may have incompatible architectures."
+                )
+            overlap = len(common_keys) / len(all_keys) if all_keys else 0.0
+            if overlap < 0.5:
+                logger.warning(
+                    "Low key overlap (%.0f%%) merging %s — checkpoints may have "
+                    "divergent architectures",
+                    overlap * 100,
+                    parent_ids,
+                )
+            for key in common_keys:
+                merged[key] = sum(w * sd[key] for w, sd in zip(weights, state_dicts))
+            self._save_state_dict(merged, dest_path / "pytorch_model.bin", "pytorch")
+
+        elif strategy == "compose":
+            base = state_dicts[0]
+            accumulated_delta = {k: base[k] * 0.0 for k in base}
+            for sd in state_dicts[1:]:
+                for k in accumulated_delta:
+                    if k in sd:
+                        accumulated_delta[k] = accumulated_delta[k] + (sd[k] - base[k])
+            composed = {k: base[k] + accumulated_delta[k] for k in base}
+            self._save_state_dict(composed, dest_path / "pytorch_model.bin", "pytorch")
+
+        elif strategy == "selective":
+            raise NotImplementedError(
+                "selective merge requires layer_manifest config (not yet supported)"
+            )
+        else:
+            raise ValueError(f"Unknown merge strategy: {strategy}")
+
+        logger.info("Merged checkpoints %s via %s -> %s", parent_ids, strategy, dest_path)
+
+    def graft_checkpoint(
+        self,
+        source_id: str,
+        source_parent_id: str,
+        target_parent_id: str,
+        checkpoint_store: Path,
+        dest_path: Path,
+    ) -> None:
+        """Apply a technique delta from one branch to another parent.
+
+        Computes delta = source - source_parent, then grafted = target_parent + delta.
+
+        Assumes all three checkpoints share the same model architecture and
+        base initialization. Designed for adapter-style (LoRA/PEFT) checkpoints.
+        Results are undefined for divergent architectures.
+
+        Args:
+            source_id: ID of the experiment whose technique delta to apply.
+            source_parent_id: ID of the source's parent checkpoint.
+            target_parent_id: ID of the target parent checkpoint to apply the delta onto.
+            checkpoint_store: Root directory containing per-node checkpoint dirs.
+            dest_path: Where to write the grafted checkpoint.
+
+        Raises:
+            ImportError: If torch is not installed.
+            ValueError: If checkpoints have incompatible key sets.
+        """
+        source = self._load_state_dict(checkpoint_store / source_id)
+        source_parent = self._load_state_dict(checkpoint_store / source_parent_id)
+        target_parent = self._load_state_dict(checkpoint_store / target_parent_id)
+
+        delta_keys = set(source.keys()) & set(source_parent.keys())
+        if not delta_keys:
+            raise ValueError(
+                f"No common keys between source ({source_id}) and source_parent "
+                f"({source_parent_id}). Cannot compute technique delta."
+            )
+        all_keys = set(source.keys()) | set(source_parent.keys())
+        overlap = len(delta_keys) / len(all_keys) if all_keys else 0.0
+        if overlap < 0.5:
+            logger.warning(
+                "Low key overlap (%.0f%%) between source %s and source_parent %s "
+                "— graft delta may be incomplete",
+                overlap * 100,
+                source_id,
+                source_parent_id,
+            )
+
+        grafted = {}
+        for key in target_parent:
+            if key in source and key in source_parent:
+                delta = source[key] - source_parent[key]
+                grafted[key] = target_parent[key] + delta
+            else:
+                grafted[key] = target_parent[key]
+
+        self._save_state_dict(grafted, dest_path / "pytorch_model.bin", "pytorch")
+        logger.info(
+            "Grafted %s (delta from %s) onto %s -> %s",
+            source_id,
+            source_parent_id,
+            target_parent_id,
+            dest_path,
+        )
