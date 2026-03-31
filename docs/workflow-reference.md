@@ -72,7 +72,7 @@ All 15 Click CLI entry points.
 | `autotune init` | Setup | Creates autotune/ overlay with templates | config.yaml, dag.json, manifold_state.json, forgetting.json |
 | `autotune submit --theta {}` | Creation | DAG.add_seed() + rerank + recalculate | dag.json |
 | `autotune propose --parents ...` | Creation | DAG.add_proposed() + recalculate_potential() | dag.json |
-| `autotune submit --node id` | Creation | Writes experiment spec to queue | queue/\<id\>.json |
+| `autotune submit --node id` | Creation | Captures commit SHA, snapshots listed files, writes spec to queue | queue/\<id\>.json, archive/\<id\>/overlay/ |
 | `autotune suggest --n 5` | Intelligence | StrategyNavigator.suggest_moves() | (stdout) |
 | `autotune explain` | Intelligence | explain_manifold() + explain_frontier() + recommend_strategy() | (stdout) |
 | `autotune frontier` | Intelligence | DAG.pareto_front() sorted by composite | (stdout) |
@@ -153,17 +153,19 @@ All 15 Click CLI entry points.
 
 Best-fit bin packing algorithm.
 
-For each GPU `g` with current allocations `A_g`:
+For each GPU `g`:
 
 ```
-free_g = vram_g - safety_margin - sum(est_vram(n) for n in A_g)
+schedulable_g = nvidia_smi_free_g - safety_margin
 ```
 
-Select the GPU with the **smallest** `free_g >= needed_gb` (tightest fit).
+`nvidia_smi_free_g` already reflects memory consumed by running processes, so no additional subtraction of autoTune's own estimated allocations is needed.
 
-Constraint: `|A_g| < max_per_gpu` (default 2 concurrent experiments per GPU).
+Select the GPU with the **smallest** `schedulable_g >= needed_gb` (tightest fit).
 
-A `_pre_launch_check()` re-queries `nvidia-smi` immediately before launch to confirm the GPU still has capacity.
+Constraint: `|running_on_g| < max_per_gpu` (default 2 concurrent experiments per GPU).
+
+A `_pre_launch_check()` re-queries `nvidia-smi` immediately before launch to confirm the GPU still has capacity, using the same formula.
 
 ### 4.3 Experiment Launch
 
@@ -171,17 +173,18 @@ A `_pre_launch_check()` re-queries `nvidia-smi` immediately before launch to con
 
 1. Create `archive/<id>/`, save spec.json
 2. Delete `queue/<id>.json` (prevent retry on crash)
-3. `base_commit = git rev-parse HEAD`
+3. `base_commit = spec["base_commit"]` (captured at queue time; falls back to `git rev-parse HEAD` for legacy specs)
 4. `runner.create_worktree(base_commit, id)` → `git worktree add --detach`
-5. **Checkpoint preparation by move type:**
+5. **Apply file overlay** — if `archive/<id>/overlay/` exists (files snapshot at queue time), call `runner.apply_overlay(wt_path, overlay_dir, [])` to copy them into the worktree
+6. **Checkpoint preparation by move type:**
    - **seed / branch:** `runner.prepare_branch()` — copy `checkpoint_store/<parent>/` → `wt/.parent_checkpoint/`
    - **merge:** `runner.merge_checkpoints()` — weighted_avg or compose strategy (see [Checkpoint Operations](#11-checkpoint-operations))
    - **graft:** `runner.graft_checkpoint()` — delta = source - source_parent, grafted = target + delta
-6. Build environment variables (see [Environment Variable Contract](#14-environment-variable-contract))
-7. `subprocess.Popen(cmd, cwd=wt_path, env=env, stdout/stderr→log_file)`
-8. Create `RunningExperiment` record with timeout_at = `time.time() + timeout_hours * 3600`
-9. Write `running/<id>.json` (orphan recovery sentinel)
-10. `dag.mark_running(id)` — status: pending → running
+7. Build environment variables (see [Environment Variable Contract](#14-environment-variable-contract))
+8. `subprocess.Popen(cmd, cwd=wt_path, env=env, stdout/stderr→log_file)`
+9. Create `RunningExperiment` record with timeout_at = `time.time() + timeout_hours * 3600`
+10. Write `running/<id>.json` (orphan recovery sentinel)
+11. `dag.mark_running(id)` — status: pending → running
 
 ### 4.4 Completion Handling
 
@@ -189,7 +192,8 @@ A `_pre_launch_check()` re-queries `nvidia-smi` immediately before launch to con
 
 1. Pop from `self.running`, remove GPU allocation, close log file
 2. `runner.collect_result(wt, archive)` — copy + parse result.json
-3. **Determine status:**
+3. `_normalize_result(result)` — accepts both flat (`{"task_score": 0.85}`) and nested (`{"metrics": {...}}`) formats; defaults `composite` to `task_score` when absent
+4. **Determine status:**
    - `result.status == "completed"` → completed
    - `"CUDA out of memory"` in last 2000 bytes of log → oom
    - `_timed_out[id]` → timeout
@@ -210,8 +214,10 @@ After every experiment completion (inside try/except):
 3. If failed: `dag.mark_failed(id, status, error)` — metrics remain None
 4. `dag.rerank_pareto()` — NSGA-II non-dominated sorting
 5. `dag.recalculate_potential()` — DAG-UCB for all executed nodes
-6. If `len(executed) >= 10`: `manifold.update(thetas, objectives)` — CMA-ES covariance learning, save to manifold_state.json
-7. If completed AND retention_score is not None: `forgetting.check_cliff(node, parents)` — if delta < threshold, create DangerZone, save to forgetting.json
+6. If `len(executed) >= 10`:
+   - `manifold.update(thetas, objectives)` — CMA-ES covariance learning, save to manifold_state.json
+   - Project all executed nodes: for each, `dag.update_manifold_coords(node.id, manifold.project(node.theta))` — grounds danger zone centers in real PC coordinates
+7. If completed AND retention_score is not None: `forgetting.check_cliff(node, parents)` — if delta < threshold, create DangerZone at the node's (now populated) manifold_coords, save to forgetting.json
 8. `_prune_checkpoints()` — delete checkpoints where pareto_rank >= retention_layers (default 2)
 9. `dag.save()`
 
@@ -759,7 +765,8 @@ project_root/
 │   │   │   └── node_XXXX/
 │   │   │       ├── spec.json
 │   │   │       ├── run.log
-│   │   │       └── result.json
+│   │   │       ├── result.json
+│   │   │       └── overlay/               ← snapshot of --files at queue time
 │   │   └── checkpoints/                   ← persistent checkpoint store
 │   │       └── node_XXXX/
 │   │           └── pytorch_model.bin      (or .safetensors)

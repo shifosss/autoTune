@@ -944,10 +944,11 @@ flowchart TD
   <h3>GPU Scheduling: Best-Fit Bin Packing</h3>
   <div class="math-block">
     <div class="label">Algorithm</div>
-    <p>For each GPU $g$ with current allocations $A_g$:</p>
-    $$\text{free}_g = \text{vram}_g - \text{safety\_margin} - \sum_{n \in A_g} \text{est\_vram}(n)$$
-    <p>Select the GPU with the <strong>smallest</strong> $\text{free}_g \geq \text{needed\_gb}$ (tightest fit).</p>
-    <p>Constraint: $|A_g| < \text{max\_per\_gpu}$ (default 2 concurrent experiments per GPU).</p>
+    <p>For each GPU $g$:</p>
+    $$\text{schedulable}_g = \text{nvidia\_smi\_free}_g - \text{safety\_margin}$$
+    <p><code>nvidia_smi_free</code> already reflects memory consumed by running processes, so no additional subtraction of autoTune's own estimated allocations is needed.</p>
+    <p>Select the GPU with the <strong>smallest</strong> $\text{schedulable}_g \geq \text{needed\_gb}$ (tightest fit).</p>
+    <p>Constraint: $|\text{running\_on}_g| < \text{max\_per\_gpu}$ (default 2 concurrent experiments per GPU).</p>
   </div>
 </section>
 
@@ -961,10 +962,15 @@ flowchart TD
 flowchart TD
     L(["_launch(spec, gpu_id)"]):::orch --> A1["Create archive/&lt;id&gt;/<br/>Save spec.json"]
     A1 --> A2["Delete queue/&lt;id&gt;.json"]
-    A2 --> A3["base_commit = git rev-parse HEAD"]
+    A2 --> A3["base_commit = spec['base_commit']<br/>(captured at queue time)"]
     A3 --> A4["runner.create_worktree(base_commit, id)<br/>git worktree add --detach"]
 
-    A4 --> MOVE{"spec.move_type?"}
+    A4 --> A5{"archive/overlay/<br/>exists?"}
+    A5 -- Yes --> A6["runner.apply_overlay(wt, overlay_dir)<br/>Copy snapshot files into worktree"]:::cli
+    A5 -- No --> MOVE
+    A6 --> MOVE
+
+    MOVE{"spec.move_type?"}
 
     MOVE -- "seed / branch" --> BR["runner.prepare_branch()<br/>Copy checkpoint_store/&lt;parent&gt;/<br/>&rarr; wt/.parent_checkpoint/"]
 
@@ -1044,7 +1050,9 @@ flowchart TD
         I7 -- Yes --> I8["manifold.update(thetas, objectives)<br/>CMA-ES covariance learning"]:::intel
         I7 -- No --> I9
 
-        I8 --> I9{"completed AND<br/>retention_score?"}
+        I8 --> I8b["Project all executed nodes:<br/>dag.update_manifold_coords(<br/>node.id, manifold.project(node.theta))"]:::intel
+
+        I8b --> I9{"completed AND<br/>retention_score?"}
         I9 -- Yes --> I10["forgetting.check_cliff(node, parents)<br/>If delta &lt; threshold &rarr; DangerZone"]:::red_node
         I9 -- No --> I11
 
@@ -1142,7 +1150,8 @@ sequenceDiagram
     Note over Orch: tick() cycle
     Orch->>Queue: _get_pending()
     Orch->>Orch: _find_best_gpu() + _pre_launch_check()
-    Orch->>Runner: create_worktree(HEAD, node_0005)
+    Orch->>Runner: create_worktree(spec.base_commit, node_0005)
+    Orch->>Runner: apply_overlay(wt, overlay_dir) [if files]
     Orch->>Runner: prepare_branch(parent_cp)
     Orch->>DAG: mark_running(node_0005)
     Orch->>Train: Popen(train.py, env={AUTOTUNE_*})
@@ -1164,6 +1173,7 @@ sequenceDiagram
     Orch->>DAG: rerank_pareto() [NSGA-II]
     Orch->>DAG: recalculate_potential() [DAG-UCB]
     Orch->>Manifold: update(thetas, objectives) [CMA-ES]
+    Orch->>DAG: update_manifold_coords() for all executed
     Orch->>Forget: check_cliff(node, parents)
     Orch->>DAG: _prune_checkpoints() + save()
     end
@@ -1671,6 +1681,7 @@ flowchart TD
 &boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine; <span class="file">spec.json</span>
 &boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine; <span class="file">run.log</span>
 &boxvr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine; <span class="file">result.json</span>
+<span class="dir">&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine; overlay/</span>              <span class="comment">&larr; file snapshot from --files at queue time</span>
 <span class="dir">&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine; checkpoints/</span>                 <span class="comment">&larr; persistent checkpoint store</span>
 <span class="dir">   &boxur;&HorizontalLine; node_XXXX/</span>
       &boxur;&HorizontalLine; <span class="file">pytorch_model.bin</span>       <span class="comment">(or .safetensors)</span>
@@ -1711,7 +1722,10 @@ flowchart TD
   <ol>
     <li>Load parent checkpoint from <code>$AUTOTUNE_PARENT_CHECKPOINT</code></li>
     <li>Save output checkpoint to <code>$AUTOTUNE_CHECKPOINT_DIR</code></li>
-    <li>Write <code>result.json</code> to working directory with at minimum: <code>{"status": "completed", "task_score": float, "cost": float}</code></li>
+    <li>Write <code>result.json</code> to working directory. Both flat and nested formats are accepted:
+      <br/><code>{"status": "completed", "task_score": 0.85, "cost": 1.5, "checkpoint_saved": true}</code>
+      <br/><code>{"status": "completed", "metrics": {"task_score": 0.85, "cost": 1.5}, "composite": 0.85, "checkpoint_saved": true}</code>
+      <br/>If <code>composite</code> is omitted, it defaults to <code>task_score</code>.</li>
   </ol>
 </section>
 
