@@ -93,6 +93,35 @@ def _load_or_create_forgetting(root: Path, config: dict) -> "ForgettingDetector"
     return ForgettingDetector(cliff_threshold=threshold)
 
 
+def _resolve_head_commit(root: Path) -> str:
+    """Resolve HEAD to an exact commit object or raise a user-facing error."""
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD^{commit}"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    commit = result.stdout.strip()
+    if result.returncode != 0 or not commit:
+        raise click.ClickException("Unable to resolve a valid HEAD commit for queue submission.")
+    return commit
+
+
+def _commit_exists(root: Path, commit: str) -> bool:
+    """Return whether `commit` resolves to a commit object in this repo."""
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
 @click.group()
 def main() -> None:
     """autoTune: Autonomous finetuning framework."""
@@ -313,6 +342,24 @@ def check() -> None:
                     if pid not in all_ids:
                         issues.append(f"orphan parent reference: {nid} -> {pid}")
 
+    # 4. Queue spec validation
+    queue_dir = root / "autotune" / "orchestrator" / "queue"
+    if queue_dir.exists():
+        import json
+
+        for queue_file in sorted(queue_dir.glob("*.json")):
+            try:
+                spec = json.loads(queue_file.read_text())
+            except json.JSONDecodeError as e:
+                issues.append(f"{queue_file.name} invalid queue JSON: {e}")
+                continue
+
+            base_commit = spec.get("base_commit")
+            if not base_commit:
+                issues.append(f"{queue_file.name} missing required base_commit")
+            elif not _commit_exists(root, str(base_commit)):
+                issues.append(f"{queue_file.name} has invalid base_commit: {base_commit}")
+
     if issues:
         for issue in issues:
             click.echo(f"  Issue: {issue}")
@@ -431,14 +478,7 @@ def _submit_queue(root: Path, node_id: str, files: tuple[str, ...]) -> None:
     if node.status != "pending":
         raise click.ClickException(f"Node {node_id} is not pending (status={node.status}).")
 
-    import subprocess
-
-    base_commit = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-    ).stdout.strip() or None
+    base_commit = _resolve_head_commit(root)
 
     spec = {
         "node_id": node_id,
@@ -467,7 +507,7 @@ def _submit_queue(root: Path, node_id: str, files: tuple[str, ...]) -> None:
     queue_dir.mkdir(parents=True, exist_ok=True)
     queue_file = queue_dir / f"{node_id}.json"
     queue_file.write_text(json_mod.dumps(spec, indent=2))
-    click.echo(f"Queued {node_id} for execution (commit={base_commit or 'unknown'}).")
+    click.echo(f"Queued {node_id} for execution (commit={base_commit}).")
 
 
 @main.command()

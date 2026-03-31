@@ -2,7 +2,7 @@
 
 import json
 import subprocess
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -214,6 +214,17 @@ class TestCheck:
         assert result.exit_code == 0
         assert "orphan" in result.output.lower()
 
+    def test_check_reports_queue_spec_missing_base_commit(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        queue_file = project_dir / "autotune" / "orchestrator" / "queue" / "node_0002.json"
+        queue_file.write_text(json.dumps({"node_id": "node_0002", "move_type": "branch"}))
+
+        result = runner.invoke(main, ["check"])
+        assert result.exit_code == 0
+        assert "missing required base_commit" in result.output.lower()
+
 
 class TestSubmit:
     def test_submit_seed_creates_dag(self, project_dir, monkeypatch):
@@ -375,6 +386,49 @@ class TestSubmit:
         assert queue_file.exists()
         spec = json.loads(queue_file.read_text())
         assert spec["node_id"] == "node_0002"
+        assert spec["base_commit"]
+
+    def test_submit_queue_fails_if_head_commit_cannot_be_resolved(self, project_dir, monkeypatch):
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        runner.invoke(main, ["init"])
+        runner.invoke(
+            main,
+            [
+                "submit",
+                "--desc",
+                "base",
+                "--theta",
+                '{"lr": 2e-4}',
+                "--task-score",
+                "0.72",
+                "--cost",
+                "1.0",
+            ],
+        )
+        runner.invoke(
+            main,
+            [
+                "propose",
+                "--parents",
+                "node_0001",
+                "--move",
+                "branch",
+                "--desc",
+                "increase lr",
+                "--theta",
+                '{"lr": 5e-4}',
+            ],
+        )
+
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda *args, **kwargs: MagicMock(returncode=1, stdout="", stderr="git failure"),
+        )
+        result = runner.invoke(main, ["submit", "--node", "node_0002"])
+        assert result.exit_code != 0
+        assert "valid head commit" in result.output.lower()
 
     def test_submit_queue_rejects_nonexistent_node(self, project_dir, monkeypatch):
         monkeypatch.chdir(project_dir)

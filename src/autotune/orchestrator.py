@@ -284,6 +284,23 @@ class ExperimentOrchestrator:
             return True  # virtual GPU, skip check
         return gpu.free_gb >= needed_gb + self.safety_margin_gb
 
+    def _resolve_launch_base_commit(self, spec: dict) -> str:
+        """Validate and normalize the commit pinned in a queued spec."""
+        base_commit = spec.get("base_commit")
+        if not base_commit:
+            raise ValueError("Queue spec missing required base_commit.")
+
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{base_commit}^{{commit}}"],
+            cwd=self.project_root,
+            capture_output=True,
+            text=True,
+        )
+        commit = result.stdout.strip()
+        if result.returncode != 0 or not commit:
+            raise ValueError(f"Queue spec has invalid base_commit: {base_commit}")
+        return commit
+
     # ── experiment lifecycle ──
 
     def _launch(self, spec: dict, gpu_id: int) -> None:
@@ -295,25 +312,29 @@ class ExperimentOrchestrator:
         archive_node = self.archive_dir / node_id
         archive_node.mkdir(parents=True, exist_ok=True)
         clean_spec = {k: v for k, v in spec.items() if k != "_file"}
+        clean_spec["provenance"] = {
+            "base_commit": clean_spec.get("base_commit"),
+            "files": list(clean_spec.get("files", [])),
+            "overlay_snapshot_present": (archive_node / "overlay").exists(),
+        }
         (archive_node / "spec.json").write_text(json.dumps(clean_spec, indent=2))
 
         queue_file = spec.get("_file")
         if queue_file and Path(queue_file).exists():
             Path(queue_file).unlink()
 
-        base_commit = spec.get("base_commit")
-        if not base_commit:
-            base_commit = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout.strip()
+        try:
+            base_commit = self._resolve_launch_base_commit(spec)
+        except ValueError as e:
+            self._mark_crashed(node_id, clean_spec, str(e))
+            return
+        clean_spec["base_commit"] = base_commit
+        clean_spec["provenance"]["base_commit"] = base_commit
+        (archive_node / "spec.json").write_text(json.dumps(clean_spec, indent=2))
         try:
             wt_path = self.runner.create_worktree(base_commit, node_id)
         except subprocess.CalledProcessError as e:
-            self._mark_crashed(node_id, spec, f"Worktree creation failed: {e}")
+            self._mark_crashed(node_id, clean_spec, f"Worktree creation failed: {e}")
             return
 
         # Apply file overlay if files were snapshot at queue time.
@@ -349,11 +370,11 @@ class ExperimentOrchestrator:
                     dest_path=parent_ckpt_dir,
                 )
         except ImportError as e:
-            self._mark_crashed(node_id, spec, str(e))
+            self._mark_crashed(node_id, clean_spec, str(e))
             self.runner.cleanup_worktree(wt_path)
             return
         except (FileNotFoundError, OSError) as e:
-            self._mark_crashed(node_id, spec, f"Checkpoint preparation failed: {e}")
+            self._mark_crashed(node_id, clean_spec, f"Checkpoint preparation failed: {e}")
             self.runner.cleanup_worktree(wt_path)
             return
 
@@ -391,7 +412,7 @@ class ExperimentOrchestrator:
             )
         except OSError as e:
             log_fh.close()
-            self._mark_crashed(node_id, spec, f"Process launch failed: {e}")
+            self._mark_crashed(node_id, clean_spec, f"Process launch failed: {e}")
             self.runner.cleanup_worktree(wt_path)
             return
 
@@ -399,7 +420,7 @@ class ExperimentOrchestrator:
         estimated_vram = spec.get("estimated_vram_gb", DEFAULT_VRAM_ESTIMATE_GB)
         exp = RunningExperiment(
             id=node_id,
-            spec=spec,
+            spec=clean_spec,
             gpu=gpu_id,
             process=process,
             log_file=log_fh,
@@ -411,7 +432,13 @@ class ExperimentOrchestrator:
         self.running[node_id] = exp
         self.gpu_allocations.setdefault(gpu_id, []).append(node_id)
         (self.running_dir / f"{node_id}.json").write_text(json.dumps(clean_spec, indent=2))
-        logger.info("Launched %s on GPU %d (pid=%d)", node_id, gpu_id, process.pid)
+        logger.info(
+            "Launched %s on GPU %d (pid=%d, commit=%s)",
+            node_id,
+            gpu_id,
+            process.pid,
+            base_commit,
+        )
 
     def _check_running(self) -> None:
         """Poll all running experiments for completion or timeout."""
@@ -527,6 +554,43 @@ class ExperimentOrchestrator:
         peak_vram = result.get("peak_vram_mb")
         return metrics, composite, peak_vram
 
+    def _sync_manifold_coords(self, dag: Any, manifold: Any) -> None:
+        """Project every executed node into the current manifold basis."""
+        for node in dag.all_executed():
+            dag.update_manifold_coords(node.id, manifold.project(node.theta))
+
+    def _rebuild_forgetting_state(
+        self,
+        dag: Any,
+        cliff_threshold: float,
+        current_node_id: str | None = None,
+    ) -> Any:
+        """Recompute forgetting danger zones from DAG history in the active basis.
+
+        Danger zones are basis-dependent. When the manifold later trains, the
+        coordinate system changes, so previously recorded zones must be
+        regenerated from grounded DAG nodes instead of incrementally appended.
+        """
+        from autotune.forgetting import ForgettingDetector
+
+        forgetting = ForgettingDetector(cliff_threshold=cliff_threshold)
+        current_cliff = None
+        for node in sorted(
+            dag.all_executed(),
+            key=lambda item: (item.depth, item.created_at, item.id),
+        ):
+            if node.retention_score is None or not node.parent_ids:
+                continue
+            refreshed = dag.get_node(node.id)
+            if refreshed is None:
+                continue
+            cliff = forgetting.check_cliff(refreshed, dag.parents(node.id))
+            if node.id == current_node_id:
+                current_cliff = cliff
+
+        forgetting.save(self.autotune_dir / "forgetting.json")
+        return current_cliff
+
     def _tail_log(self, log_path: Path, n: int) -> str:
         """Return the last n lines of a log file."""
         if not log_path.exists():
@@ -537,7 +601,6 @@ class ExperimentOrchestrator:
     def _post_completion_update(self, node_id: str, status: str, completion: dict) -> None:
         """Update DAG, manifold, and forgetting after experiment completion."""
         from autotune.dag import ExperimentDAG
-        from autotune.forgetting import ForgettingDetector
         from autotune.manifold import ManifoldNavigator
 
         dag_path = self.autotune_dir / "dag.json"
@@ -583,32 +646,30 @@ class ExperimentOrchestrator:
                 points = [dict(n.theta) for n in executed]
                 objectives = [(n.composite or 0.0,) for n in executed]
                 manifold.update(points, objectives)
-                manifold.save(manifold_path)
-                # Project all executed nodes onto the updated manifold so that
-                # danger zone centers are grounded in real coordinates.
-                for ex_node in executed:
-                    coords = manifold.project(ex_node.theta)
-                    if coords:
-                        dag.update_manifold_coords(ex_node.id, coords)
+            self._sync_manifold_coords(dag, manifold)
+            manifold.save(manifold_path)
 
         if status == "completed":
             node = dag.get_node(node_id)
-            if node and node.retention_score is not None:
-                forgetting_path = self.autotune_dir / "forgetting.json"
-                threshold = config.get("scoring", {}).get("retention_cliff_threshold", -0.10)
-                if forgetting_path.exists():
-                    forgetting = ForgettingDetector.load(forgetting_path)
-                else:
-                    forgetting = ForgettingDetector(cliff_threshold=threshold)
-                parents = dag.parents(node_id)
-                cliff = forgetting.check_cliff(node, parents)
+            threshold = config.get("scoring", {}).get("retention_cliff_threshold", -0.10)
+            if not param_names:
+                if node and node.retention_score is not None:
+                    logger.warning(
+                        "Skipping forgetting zone rebuild for %s: no parameter space configured",
+                        node_id,
+                    )
+            else:
+                cliff = self._rebuild_forgetting_state(
+                    dag,
+                    cliff_threshold=threshold,
+                    current_node_id=node_id,
+                )
                 if cliff:
                     logger.warning(
                         "Forgetting cliff detected for %s: delta=%.3f",
                         node_id,
                         cliff.delta_retention,
                     )
-                forgetting.save(forgetting_path)
 
         self._prune_checkpoints(dag)
         dag.save()

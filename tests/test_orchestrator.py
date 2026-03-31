@@ -55,6 +55,10 @@ def orch_project(tmp_path):
     at.mkdir()
     config = {
         "run": {"script": "train.py", "checkpoint_format": "safetensors"},
+        "parameters": {
+            "lr": {"range": [1e-5, 1e-3]},
+            "rank": {"range": [4, 64]},
+        },
         "retention": {"enabled": False},
         "orchestrator": {
             "poll_interval": 10,
@@ -201,6 +205,270 @@ class TestLifecycle:
         data = json.loads(comp_file.read_text())
         assert data["status"] == "crash"
         assert "test error" in data["error"]
+
+    @patch("autotune.orchestrator.query_gpus", return_value=[])
+    def test_launch_rejects_missing_base_commit(self, mock_gpus, orch_project):
+        orch = ExperimentOrchestrator(orch_project)
+        queue_file = orch.queue_dir / "node_0001.json"
+        queue_file.write_text(json.dumps({"node_id": "node_0001", "move_type": "branch"}))
+        spec = {"node_id": "node_0001", "move_type": "branch", "_file": str(queue_file)}
+
+        with patch.object(orch.runner, "create_worktree") as mock_create_worktree:
+            orch._launch(spec, gpu_id=0)
+
+        mock_create_worktree.assert_not_called()
+        completion = json.loads((orch.completed_dir / "node_0001.json").read_text())
+        assert "base_commit" in completion["error"]
+        archived = json.loads((orch.archive_dir / "node_0001" / "spec.json").read_text())
+        assert archived["provenance"]["base_commit"] is None
+
+    @patch("autotune.orchestrator.query_gpus", return_value=[])
+    def test_launch_rejects_invalid_base_commit(self, mock_gpus, orch_project):
+        orch = ExperimentOrchestrator(orch_project)
+        queue_file = orch.queue_dir / "node_0002.json"
+        queue_file.write_text(
+            json.dumps({"node_id": "node_0002", "move_type": "branch", "base_commit": "deadbeef"})
+        )
+        spec = {
+            "node_id": "node_0002",
+            "move_type": "branch",
+            "base_commit": "deadbeef",
+            "_file": str(queue_file),
+        }
+
+        with patch.object(orch.runner, "create_worktree") as mock_create_worktree:
+            orch._launch(spec, gpu_id=0)
+
+        mock_create_worktree.assert_not_called()
+        completion = json.loads((orch.completed_dir / "node_0002.json").read_text())
+        assert "invalid base_commit" in completion["error"]
+        archived = json.loads((orch.archive_dir / "node_0002" / "spec.json").read_text())
+        assert archived["provenance"]["base_commit"] == "deadbeef"
+
+
+class TestForgettingGrounding:
+    @patch("autotune.orchestrator.query_gpus", return_value=[])
+    def test_early_cliff_saves_grounded_danger_zone(self, mock_gpus, orch_project):
+        from autotune.dag import ExperimentDAG
+        from autotune.forgetting import ForgettingDetector
+        from autotune.types import ScoringConfig
+
+        orch = ExperimentOrchestrator(orch_project)
+        dag_path = orch_project / "autotune" / "dag.json"
+        scoring = ScoringConfig(0.005, 0.01, -0.10)
+        dag = ExperimentDAG.create(dag_path, scoring, objective_count=3)
+        parent = dag.add_seed(
+            theta={"lr": 2e-4, "rank": 16},
+            description="stable parent",
+            techniques=("baseline",),
+            composite=0.82,
+            task_score=0.82,
+            retention_score=0.95,
+            cost=1.0,
+        )
+        child = dag.add_proposed(
+            parent_ids=(parent.id,),
+            move_type="branch",
+            description="aggressive branch",
+            techniques=("lr_increase",),
+            theta={"lr": 3.5e-4, "rank": 24},
+        )
+        dag.mark_running(child.id)
+        dag.save()
+
+        orch._post_completion_update(
+            child.id,
+            "completed",
+            {
+                "metrics": {
+                    "task_score": 0.84,
+                    "retention_score": 0.72,
+                    "cost": 1.2,
+                },
+                "composite": 0.84,
+            },
+        )
+
+        dag = ExperimentDAG.load(dag_path)
+        child_node = dag.get_node(child.id)
+        assert child_node is not None
+        assert child_node.manifold_coords is not None
+        assert len(child_node.manifold_coords) == 2
+
+        forgetting = ForgettingDetector.load(orch_project / "autotune" / "forgetting.json")
+        zones = forgetting.danger_zones()
+        assert len(zones) == 1
+        assert zones[0].center == pytest.approx(child_node.manifold_coords)
+        assert zones[0].radius == pytest.approx((0.95 - 0.72) * 0.5)
+
+    @patch("autotune.orchestrator.query_gpus", return_value=[])
+    def test_early_cliff_zone_filters_later_merge_suggestions(self, mock_gpus, orch_project):
+        from autotune.dag import ExperimentDAG
+        from autotune.forgetting import ForgettingDetector
+        from autotune.manifold import ManifoldNavigator
+        from autotune.navigator import StrategyNavigator
+        from autotune.types import ScoringConfig
+
+        orch = ExperimentOrchestrator(orch_project)
+        dag_path = orch_project / "autotune" / "dag.json"
+        scoring = ScoringConfig(0.005, 0.01, -0.10)
+        dag = ExperimentDAG.create(dag_path, scoring, objective_count=3)
+        left = dag.add_seed(
+            theta={"lr": 2e-4, "rank": 16},
+            description="left",
+            techniques=("baseline",),
+            composite=0.82,
+            task_score=0.82,
+            retention_score=0.95,
+            cost=1.0,
+        )
+        dag.add_seed(
+            theta={"lr": 5e-4, "rank": 32},
+            description="right",
+            techniques=("baseline",),
+            composite=0.88,
+            task_score=0.88,
+            retention_score=0.90,
+            cost=1.5,
+        )
+        child = dag.add_proposed(
+            parent_ids=(left.id,),
+            move_type="branch",
+            description="forgetting cliff at merge midpoint",
+            techniques=("lr_increase",),
+            theta={"lr": 3.5e-4, "rank": 24},
+        )
+        dag.mark_running(child.id)
+        dag.save()
+
+        orch._post_completion_update(
+            child.id,
+            "completed",
+            {
+                "metrics": {
+                    "task_score": 0.84,
+                    "retention_score": 0.72,
+                    "cost": 1.2,
+                },
+                "composite": 0.84,
+            },
+        )
+
+        dag = ExperimentDAG.load(dag_path)
+        manifold = ManifoldNavigator.load(orch_project / "autotune" / "manifold_state.json")
+        forgetting = ForgettingDetector.load(orch_project / "autotune" / "forgetting.json")
+        baseline_nav = StrategyNavigator(
+            dag,
+            manifold,
+            ForgettingDetector(cliff_threshold=-0.10),
+        )
+        assert any(move.move_type == "merge" for move in baseline_nav.suggest_moves(n=10))
+
+        nav = StrategyNavigator(dag, manifold, forgetting)
+        moves = nav.suggest_moves(n=10)
+        merge_moves = [m for m in moves if m.move_type == "merge"]
+        assert merge_moves == []
+
+    @patch("autotune.orchestrator.query_gpus", return_value=[])
+    def test_rebuilds_existing_cliffs_when_10th_run_lacks_retention(self, mock_gpus, orch_project):
+        from autotune.dag import ExperimentDAG
+        from autotune.forgetting import ForgettingDetector
+        from autotune.types import ScoringConfig
+
+        orch = ExperimentOrchestrator(orch_project)
+        dag_path = orch_project / "autotune" / "dag.json"
+        scoring = ScoringConfig(0.005, 0.01, -0.10)
+        dag = ExperimentDAG.create(dag_path, scoring, objective_count=3)
+
+        seed_a = dag.add_seed(
+            theta={"lr": 2e-4, "rank": 48},
+            description="seed A",
+            techniques=("baseline",),
+            composite=0.90,
+            task_score=0.90,
+            retention_score=0.95,
+            cost=1.0,
+        )
+        seed_b = dag.add_seed(
+            theta={"lr": 8e-4, "rank": 16},
+            description="seed B",
+            techniques=("baseline",),
+            composite=0.88,
+            task_score=0.88,
+            retention_score=0.94,
+            cost=1.1,
+        )
+        earlier_cliff = dag.add_proposed(
+            parent_ids=(seed_a.id,),
+            move_type="branch",
+            description="earlier cliff",
+            techniques=("lr_increase",),
+            theta={"lr": 5e-4, "rank": 32},
+        )
+        dag.promote(
+            earlier_cliff.id,
+            {
+                "task_score": 0.74,
+                "retention_score": 0.70,
+                "cost": 1.2,
+                "composite": 0.74,
+                "checkpoint_id": None,
+            },
+        )
+
+        extra_points = [
+            {"lr": 1e-4, "rank": 12},
+            {"lr": 2.5e-4, "rank": 20},
+            {"lr": 3.5e-4, "rank": 28},
+            {"lr": 4.5e-4, "rank": 36},
+            {"lr": 6e-4, "rank": 44},
+            {"lr": 7e-4, "rank": 52},
+        ]
+        for idx, theta in enumerate(extra_points, start=4):
+            dag.add_seed(
+                theta=theta,
+                description=f"seed {idx}",
+                techniques=("baseline",),
+                composite=0.70 + idx * 0.01,
+                task_score=0.70 + idx * 0.01,
+                retention_score=0.93 - idx * 0.01,
+                cost=1.0 + idx * 0.1,
+            )
+
+        pending = dag.add_proposed(
+            parent_ids=(seed_b.id,),
+            move_type="branch",
+            description="10th run without retention",
+            techniques=("noop",),
+            theta={"lr": 6.5e-4, "rank": 24},
+        )
+        dag.mark_running(pending.id)
+        dag.save()
+
+        orch._post_completion_update(
+            pending.id,
+            "completed",
+            {
+                "metrics": {
+                    "task_score": 0.83,
+                    "cost": 1.3,
+                },
+                "composite": 0.83,
+            },
+        )
+
+        forgetting_path = orch_project / "autotune" / "forgetting.json"
+        assert forgetting_path.exists()
+
+        dag = ExperimentDAG.load(dag_path)
+        earlier_cliff_node = dag.get_node(earlier_cliff.id)
+        assert earlier_cliff_node is not None
+        assert earlier_cliff_node.manifold_coords is not None
+
+        forgetting = ForgettingDetector.load(forgetting_path)
+        zones = forgetting.danger_zones()
+        assert len(zones) == 1
+        assert zones[0].center == pytest.approx(earlier_cliff_node.manifold_coords)
 
 
 class TestCheckpointPruning:
