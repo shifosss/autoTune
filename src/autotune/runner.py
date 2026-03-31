@@ -272,6 +272,111 @@ class ExperimentRunner:
 
         torch.save(state_dict, str(path))
 
+    def _load_adapter_config(self, checkpoint_dir: Path) -> dict[str, object]:
+        """Load adapter metadata required for arithmetic checkpoint operations."""
+        config_path = checkpoint_dir / "adapter_config.json"
+        if not config_path.exists():
+            raise ValueError(
+                f"Checkpoint {checkpoint_dir} is missing adapter_config.json. "
+                "Checkpoint arithmetic only supports adapter-style checkpoints."
+            )
+        with open(config_path) as f:
+            config = json.load(f)
+        if not isinstance(config, dict):
+            raise ValueError(f"Checkpoint {checkpoint_dir} has an invalid adapter_config.json")
+        return config
+
+    @staticmethod
+    def _tensor_shape(tensor: object) -> tuple[object, ...]:
+        shape = getattr(tensor, "shape", None)
+        if shape is None:
+            return ()
+        return tuple(shape)
+
+    @staticmethod
+    def _tensor_dtype(tensor: object) -> str:
+        dtype = getattr(tensor, "dtype", None)
+        if dtype is None:
+            return type(tensor).__name__
+        return str(dtype)
+
+    @staticmethod
+    def _preview_keys(keys: set[str]) -> str:
+        preview = ", ".join(sorted(keys)[:3])
+        if len(keys) > 3:
+            preview += ", ..."
+        return preview or "<none>"
+
+    def _validate_adapter_group(
+        self,
+        checkpoints: list[tuple[str, Path, dict]],
+    ) -> dict[str, object]:
+        """Validate that arithmetic operands are compatible adapter checkpoints."""
+        if not checkpoints:
+            raise ValueError("No checkpoints provided for arithmetic operation.")
+
+        metadata_fields = (
+            "base_model_name_or_path",
+            "peft_type",
+            "task_type",
+            "target_modules",
+        )
+        reference_name, reference_dir, reference_state = checkpoints[0]
+        reference_config = self._load_adapter_config(reference_dir)
+        reference_keys = set(reference_state)
+
+        for name, checkpoint_dir, state in checkpoints[1:]:
+            config = self._load_adapter_config(checkpoint_dir)
+            for field in metadata_fields:
+                if reference_config.get(field) != config.get(field):
+                    raise ValueError(
+                        f"Incompatible adapter metadata for {field}: "
+                        f"{reference_name} != {name}"
+                    )
+
+            state_keys = set(state)
+            if state_keys != reference_keys:
+                missing = reference_keys - state_keys
+                extra = state_keys - reference_keys
+                raise ValueError(
+                    f"Incompatible tensor keys between {reference_name} and {name}. "
+                    f"Missing: {self._preview_keys(missing)}; "
+                    f"Extra: {self._preview_keys(extra)}"
+                )
+
+            for key in sorted(reference_keys):
+                ref_tensor = reference_state[key]
+                tensor = state[key]
+                ref_shape = self._tensor_shape(ref_tensor)
+                shape = self._tensor_shape(tensor)
+                if ref_shape != shape:
+                    raise ValueError(
+                        f"Incompatible tensor shape for key {key}: "
+                        f"{reference_name}{ref_shape} != {name}{shape}"
+                    )
+                ref_dtype = self._tensor_dtype(ref_tensor)
+                dtype = self._tensor_dtype(tensor)
+                if ref_dtype != dtype:
+                    raise ValueError(
+                        f"Incompatible tensor dtype for key {key}: "
+                        f"{reference_name}({ref_dtype}) != {name}({dtype})"
+                    )
+
+        return reference_config
+
+    def _write_adapter_checkpoint(
+        self,
+        state_dict: dict,
+        dest_path: Path,
+        adapter_config: dict[str, object],
+    ) -> None:
+        """Persist an arithmetic checkpoint result with its adapter metadata."""
+        dest_path.mkdir(parents=True, exist_ok=True)
+        self._save_state_dict(state_dict, dest_path / "pytorch_model.bin", "pytorch")
+        with open(dest_path / "adapter_config.json", "w") as f:
+            json.dump(adapter_config, f, indent=2, sort_keys=True)
+            f.write("\n")
+
     def merge_checkpoints(
         self,
         parent_ids: tuple[str, ...],
@@ -299,41 +404,26 @@ class ExperimentRunner:
             NotImplementedError: If strategy is "selective".
             ValueError: If strategy is unknown or checkpoints are incompatible.
         """
-        state_dicts = [self._load_state_dict(checkpoint_store / pid) for pid in parent_ids]
+        parent_dirs = [checkpoint_store / pid for pid in parent_ids]
+        state_dicts = [self._load_state_dict(path) for path in parent_dirs]
+        adapter_config = self._validate_adapter_group(
+            list(zip(parent_ids, parent_dirs, state_dicts, strict=True))
+        )
 
         if strategy == "weighted_avg":
             merged = {}
-            common_keys = set(state_dicts[0].keys())
-            all_keys = set(state_dicts[0].keys())
-            for sd in state_dicts[1:]:
-                common_keys &= set(sd.keys())
-                all_keys |= set(sd.keys())
-            if not common_keys:
-                raise ValueError(
-                    f"No common keys across parent checkpoints {parent_ids}. "
-                    "Checkpoints may have incompatible architectures."
-                )
-            overlap = len(common_keys) / len(all_keys) if all_keys else 0.0
-            if overlap < 0.5:
-                logger.warning(
-                    "Low key overlap (%.0f%%) merging %s — checkpoints may have "
-                    "divergent architectures",
-                    overlap * 100,
-                    parent_ids,
-                )
-            for key in common_keys:
+            for key in state_dicts[0]:
                 merged[key] = sum(w * sd[key] for w, sd in zip(weights, state_dicts))
-            self._save_state_dict(merged, dest_path / "pytorch_model.bin", "pytorch")
+            self._write_adapter_checkpoint(merged, dest_path, adapter_config)
 
         elif strategy == "compose":
             base = state_dicts[0]
             accumulated_delta = {k: base[k] * 0.0 for k in base}
             for sd in state_dicts[1:]:
                 for k in accumulated_delta:
-                    if k in sd:
-                        accumulated_delta[k] = accumulated_delta[k] + (sd[k] - base[k])
+                    accumulated_delta[k] = accumulated_delta[k] + (sd[k] - base[k])
             composed = {k: base[k] + accumulated_delta[k] for k in base}
-            self._save_state_dict(composed, dest_path / "pytorch_model.bin", "pytorch")
+            self._write_adapter_checkpoint(composed, dest_path, adapter_config)
 
         elif strategy == "selective":
             raise NotImplementedError(
@@ -371,36 +461,28 @@ class ExperimentRunner:
             ImportError: If torch is not installed.
             ValueError: If checkpoints have incompatible key sets.
         """
+        checkpoint_dirs = {
+            "source": checkpoint_store / source_id,
+            "source_parent": checkpoint_store / source_parent_id,
+            "target_parent": checkpoint_store / target_parent_id,
+        }
         source = self._load_state_dict(checkpoint_store / source_id)
         source_parent = self._load_state_dict(checkpoint_store / source_parent_id)
         target_parent = self._load_state_dict(checkpoint_store / target_parent_id)
-
-        delta_keys = set(source.keys()) & set(source_parent.keys())
-        if not delta_keys:
-            raise ValueError(
-                f"No common keys between source ({source_id}) and source_parent "
-                f"({source_parent_id}). Cannot compute technique delta."
-            )
-        all_keys = set(source.keys()) | set(source_parent.keys())
-        overlap = len(delta_keys) / len(all_keys) if all_keys else 0.0
-        if overlap < 0.5:
-            logger.warning(
-                "Low key overlap (%.0f%%) between source %s and source_parent %s "
-                "— graft delta may be incomplete",
-                overlap * 100,
-                source_id,
-                source_parent_id,
-            )
+        adapter_config = self._validate_adapter_group(
+            [
+                (source_id, checkpoint_dirs["source"], source),
+                (source_parent_id, checkpoint_dirs["source_parent"], source_parent),
+                (target_parent_id, checkpoint_dirs["target_parent"], target_parent),
+            ]
+        )
 
         grafted = {}
         for key in target_parent:
-            if key in source and key in source_parent:
-                delta = source[key] - source_parent[key]
-                grafted[key] = target_parent[key] + delta
-            else:
-                grafted[key] = target_parent[key]
+            delta = source[key] - source_parent[key]
+            grafted[key] = target_parent[key] + delta
 
-        self._save_state_dict(grafted, dest_path / "pytorch_model.bin", "pytorch")
+        self._write_adapter_checkpoint(grafted, dest_path, adapter_config)
         logger.info(
             "Grafted %s (delta from %s) onto %s -> %s",
             source_id,

@@ -1,6 +1,5 @@
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 from autotune.runner import ExperimentRunner
@@ -33,6 +32,43 @@ def project_repo(tmp_path):
         check=True,
     )
     return repo
+
+
+def adapter_config(**overrides):
+    config = {
+        "base_model_name_or_path": "meta/llama-base",
+        "peft_type": "LORA",
+        "task_type": "CAUSAL_LM",
+        "target_modules": ["q_proj", "v_proj"],
+    }
+    config.update(overrides)
+    return config
+
+
+def setup_mock_adapter_store(project_repo, monkeypatch, specs):
+    import types
+
+    store = project_repo / "checkpoints"
+    store.mkdir()
+    load_map = {}
+    for spec in specs:
+        checkpoint_dir = store / spec["name"]
+        checkpoint_dir.mkdir()
+        (checkpoint_dir / "pytorch_model.bin").write_text("fake")
+        if spec.get("write_config", True):
+            config = spec.get("config", adapter_config())
+            (checkpoint_dir / "adapter_config.json").write_text(
+                json.dumps(config, indent=2, sort_keys=True)
+            )
+        load_map[str(checkpoint_dir / "pytorch_model.bin")] = spec["state"]
+
+    mock_torch = types.ModuleType("torch")
+    mock_torch.load = lambda path, **kw: load_map[str(path)]
+    saved_state = {}
+    mock_torch.save = lambda obj, path: saved_state.update({"obj": obj, "path": str(path)})
+    monkeypatch.setitem(__import__("sys").modules, "torch", mock_torch)
+    monkeypatch.setitem(__import__("sys").modules, "safetensors", None)
+    return store, saved_state
 
 
 class TestWorktreeLifecycle:
@@ -169,37 +205,15 @@ class TestCheckpointIO:
 class TestMergeCheckpoints:
     """Tests for merge_checkpoints with various strategies."""
 
-    def _setup_parents(self, project_repo, monkeypatch):
-        """Create fake checkpoints and mock torch."""
-        import types
-
-        store = project_repo / "checkpoints"
-        store.mkdir()
-        # Parent A: {"w": [1.0, 2.0]}
-        p_a = store / "node_0001"
-        p_a.mkdir()
-        (p_a / "pytorch_model.bin").write_text("fake_a")
-        # Parent B: {"w": [3.0, 4.0]}
-        p_b = store / "node_0002"
-        p_b.mkdir()
-        (p_b / "pytorch_model.bin").write_text("fake_b")
-
+    def _setup_parents(self, project_repo, monkeypatch, specs=None):
         import numpy as np
 
-        state_a = {"w": np.array([1.0, 2.0])}
-        state_b = {"w": np.array([3.0, 4.0])}
-
-        mock_torch = types.ModuleType("torch")
-        load_map = {
-            str(p_a / "pytorch_model.bin"): state_a,
-            str(p_b / "pytorch_model.bin"): state_b,
-        }
-        mock_torch.load = lambda path, **kw: load_map[str(path)]
-        saved_state = {}
-        mock_torch.save = lambda obj, path: saved_state.update({"obj": obj, "path": str(path)})
-        monkeypatch.setitem(__import__("sys").modules, "torch", mock_torch)
-        monkeypatch.setitem(__import__("sys").modules, "safetensors", None)
-        return store, saved_state
+        if specs is None:
+            specs = [
+                {"name": "node_0001", "state": {"w": np.array([1.0, 2.0], dtype=np.float32)}},
+                {"name": "node_0002", "state": {"w": np.array([3.0, 4.0], dtype=np.float32)}},
+            ]
+        return setup_mock_adapter_store(project_repo, monkeypatch, specs)
 
     def test_weighted_avg(self, project_repo, monkeypatch):
         import numpy as np
@@ -215,6 +229,7 @@ class TestMergeCheckpoints:
             dest_path=dest,
         )
         np.testing.assert_array_almost_equal(saved_state["obj"]["w"], [2.0, 3.0])
+        assert json.loads((dest / "adapter_config.json").read_text()) == adapter_config()
 
     def test_compose(self, project_repo, monkeypatch):
         import numpy as np
@@ -232,6 +247,7 @@ class TestMergeCheckpoints:
         # compose: base + sum(deltas from base)
         # base = A = [1,2], delta_B = B - A = [2,2], result = A + [2,2] = [3,4]
         np.testing.assert_array_almost_equal(saved_state["obj"]["w"], [3.0, 4.0])
+        assert json.loads((dest / "adapter_config.json").read_text()) == adapter_config()
 
     def test_selective_raises(self, project_repo, monkeypatch):
         store, _ = self._setup_parents(project_repo, monkeypatch)
@@ -257,6 +273,151 @@ class TestMergeCheckpoints:
                 dest_path=project_repo / "merged",
             )
 
+    def test_missing_adapter_config_raises(self, project_repo, monkeypatch):
+        store, _ = self._setup_parents(
+            project_repo,
+            monkeypatch,
+            specs=[
+                {"name": "node_0001", "state": {"w": [1.0]}, "write_config": False},
+                {"name": "node_0002", "state": {"w": [2.0]}},
+            ],
+        )
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ValueError, match="missing adapter_config.json"):
+            runner.merge_checkpoints(
+                parent_ids=("node_0001", "node_0002"),
+                weights=(0.5, 0.5),
+                strategy="weighted_avg",
+                checkpoint_store=store,
+                dest_path=project_repo / "merged",
+            )
+
+    def test_mismatched_base_model_raises(self, project_repo, monkeypatch):
+        store, _ = self._setup_parents(
+            project_repo,
+            monkeypatch,
+            specs=[
+                {"name": "node_0001", "state": {"w": [1.0]}},
+                {
+                    "name": "node_0002",
+                    "state": {"w": [2.0]},
+                    "config": adapter_config(base_model_name_or_path="meta/other-base"),
+                },
+            ],
+        )
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ValueError, match="base_model_name_or_path"):
+            runner.merge_checkpoints(
+                parent_ids=("node_0001", "node_0002"),
+                weights=(0.5, 0.5),
+                strategy="weighted_avg",
+                checkpoint_store=store,
+                dest_path=project_repo / "merged",
+            )
+
+    def test_mismatched_peft_type_raises(self, project_repo, monkeypatch):
+        store, _ = self._setup_parents(
+            project_repo,
+            monkeypatch,
+            specs=[
+                {"name": "node_0001", "state": {"w": [1.0]}},
+                {
+                    "name": "node_0002",
+                    "state": {"w": [2.0]},
+                    "config": adapter_config(peft_type="IA3"),
+                },
+            ],
+        )
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ValueError, match="peft_type"):
+            runner.merge_checkpoints(
+                parent_ids=("node_0001", "node_0002"),
+                weights=(0.5, 0.5),
+                strategy="weighted_avg",
+                checkpoint_store=store,
+                dest_path=project_repo / "merged",
+            )
+
+    def test_weighted_avg_key_mismatch_raises(self, project_repo, monkeypatch):
+        store, _ = self._setup_parents(
+            project_repo,
+            monkeypatch,
+            specs=[
+                {"name": "node_0001", "state": {"w": [1.0], "b": [0.1]}},
+                {"name": "node_0002", "state": {"w": [2.0]}},
+            ],
+        )
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ValueError, match="tensor keys"):
+            runner.merge_checkpoints(
+                parent_ids=("node_0001", "node_0002"),
+                weights=(0.5, 0.5),
+                strategy="weighted_avg",
+                checkpoint_store=store,
+                dest_path=project_repo / "merged",
+            )
+
+    def test_compose_key_mismatch_raises(self, project_repo, monkeypatch):
+        store, _ = self._setup_parents(
+            project_repo,
+            monkeypatch,
+            specs=[
+                {"name": "node_0001", "state": {"w": [1.0], "b": [0.1]}},
+                {"name": "node_0002", "state": {"w": [2.0]}},
+            ],
+        )
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ValueError, match="tensor keys"):
+            runner.merge_checkpoints(
+                parent_ids=("node_0001", "node_0002"),
+                weights=(1.0, 1.0),
+                strategy="compose",
+                checkpoint_store=store,
+                dest_path=project_repo / "merged",
+            )
+
+    def test_shape_mismatch_raises(self, project_repo, monkeypatch):
+        import numpy as np
+
+        store, _ = self._setup_parents(
+            project_repo,
+            monkeypatch,
+            specs=[
+                {"name": "node_0001", "state": {"w": np.array([1.0, 2.0], dtype=np.float32)}},
+                {"name": "node_0002", "state": {"w": np.array([[3.0, 4.0]], dtype=np.float32)}},
+            ],
+        )
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ValueError, match="tensor shape"):
+            runner.merge_checkpoints(
+                parent_ids=("node_0001", "node_0002"),
+                weights=(0.5, 0.5),
+                strategy="weighted_avg",
+                checkpoint_store=store,
+                dest_path=project_repo / "merged",
+            )
+
+    def test_dtype_mismatch_raises(self, project_repo, monkeypatch):
+        import numpy as np
+
+        store, _ = self._setup_parents(
+            project_repo,
+            monkeypatch,
+            specs=[
+                {"name": "node_0001", "state": {"w": np.array([1.0, 2.0], dtype=np.float32)}},
+                {"name": "node_0002", "state": {"w": np.array([3.0, 4.0], dtype=np.float64)}},
+            ],
+        )
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ValueError, match="tensor dtype"):
+            runner.merge_checkpoints(
+                parent_ids=("node_0001", "node_0002"),
+                weights=(0.5, 0.5),
+                strategy="weighted_avg",
+                checkpoint_store=store,
+                dest_path=project_repo / "merged",
+            )
+
     def test_no_torch_raises(self, project_repo, monkeypatch):
         monkeypatch.setitem(__import__("sys").modules, "torch", None)
         monkeypatch.setitem(__import__("sys").modules, "safetensors", None)
@@ -277,28 +438,23 @@ class TestGraftCheckpoint:
     """Tests for graft_checkpoint delta-transfer operation."""
 
     def test_graft_applies_delta(self, project_repo, monkeypatch):
-        import types
-
         import numpy as np
 
-        store = project_repo / "checkpoints"
-        store.mkdir()
-        for name in ("source", "source_parent", "target_parent"):
-            d = store / name
-            d.mkdir()
-            (d / "pytorch_model.bin").write_text("fake")
-
-        states = {
-            "source": {"w": np.array([5.0, 6.0])},
-            "source_parent": {"w": np.array([1.0, 2.0])},
-            "target_parent": {"w": np.array([10.0, 20.0])},
-        }
-        mock_torch = types.ModuleType("torch")
-        mock_torch.load = lambda path, **kw: states[Path(path).parent.name]
-        saved = {}
-        mock_torch.save = lambda obj, path: saved.update({"obj": obj})
-        monkeypatch.setitem(__import__("sys").modules, "torch", mock_torch)
-        monkeypatch.setitem(__import__("sys").modules, "safetensors", None)
+        store, saved = setup_mock_adapter_store(
+            project_repo,
+            monkeypatch,
+            [
+                {"name": "source", "state": {"w": np.array([5.0, 6.0], dtype=np.float32)}},
+                {
+                    "name": "source_parent",
+                    "state": {"w": np.array([1.0, 2.0], dtype=np.float32)},
+                },
+                {
+                    "name": "target_parent",
+                    "state": {"w": np.array([10.0, 20.0], dtype=np.float32)},
+                },
+            ],
+        )
 
         runner = ExperimentRunner(project_repo)
         runner.graft_checkpoint(
@@ -311,6 +467,31 @@ class TestGraftCheckpoint:
         # delta = source - source_parent = [4, 4]
         # grafted = target_parent + delta = [14, 24]
         np.testing.assert_array_almost_equal(saved["obj"]["w"], [14.0, 24.0])
+        assert json.loads((project_repo / "grafted" / "adapter_config.json").read_text()) == (
+            adapter_config()
+        )
+
+    def test_graft_target_missing_delta_key_raises(self, project_repo, monkeypatch):
+        import numpy as np
+
+        store, _ = setup_mock_adapter_store(
+            project_repo,
+            monkeypatch,
+            [
+                {"name": "source", "state": {"w": np.array([5.0], dtype=np.float32)}},
+                {"name": "source_parent", "state": {"w": np.array([1.0], dtype=np.float32)}},
+                {"name": "target_parent", "state": {"other": np.array([10.0], dtype=np.float32)}},
+            ],
+        )
+        runner = ExperimentRunner(project_repo)
+        with pytest.raises(ValueError, match="tensor keys"):
+            runner.graft_checkpoint(
+                source_id="source",
+                source_parent_id="source_parent",
+                target_parent_id="target_parent",
+                checkpoint_store=store,
+                dest_path=project_repo / "grafted",
+            )
 
     def test_graft_no_torch_raises(self, project_repo, monkeypatch):
         monkeypatch.setitem(__import__("sys").modules, "torch", None)

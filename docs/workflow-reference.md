@@ -563,6 +563,18 @@ Prevents proposing merges between near-identical parents.
 
 Four checkpoint strategies for different move types.
 
+Only **branch copy** is general. The arithmetic operations (`weighted_avg`,
+`compose`, `graft`) are restricted to adapter-style checkpoints that share the
+same base model, adapter metadata, and exact tensor layout. In
+`runner.merge_checkpoints()` and `runner.graft_checkpoint()`, operands must:
+
+- include `adapter_config.json`
+- match on `base_model_name_or_path`, `peft_type`, `task_type`, and `target_modules`
+- have identical tensor keys
+- have identical tensor shapes and dtypes per key
+
+Arbitrary full-model checkpoint arithmetic is unsupported.
+
 ### Branch (Copy)
 
 ```
@@ -579,7 +591,9 @@ Given parents P₁, P₂, ..., P_m with weights w₁, w₂, ..., w_m where Σ w_
 θ_merged[k] = Σ_{i=1}^{m} w_i * θ_{P_i}[k]    ∀ k ∈ ⋂_i keys(θ_{P_i})
 ```
 
-Only keys present in **all** parent state dicts are merged. Missing keys are dropped.
+This is only valid when every parent exposes the **same adapter metadata** and
+the **same tensor keys, shapes, and dtypes**. The runner rejects partial-overlap
+merges instead of dropping keys.
 
 ### Compose Merge (LoRA)
 
@@ -590,7 +604,9 @@ Given base P₀ and additional parents P₁, ..., P_{m-1}:
 θ_composed[k] = θ_{P₀}[k] + Δ
 ```
 
-Sums the deltas of all parents relative to a shared base, then applies the total delta. Useful for composing independent LoRA adaptations.
+Sums the deltas of all parents relative to a shared base, then applies the total
+delta. This is only supported for compatible adapter checkpoints from the same
+base initialization; exact key, shape, and dtype matches are required.
 
 ### Graft (Cross-Branch Technique Transfer)
 
@@ -601,7 +617,9 @@ Given source experiment S with source parent S_p, and target parent T_p:
 θ_grafted[k] = θ_{T_p}[k] + Δ_S[k]        (apply to different branch)
 ```
 
-For keys not in S or S_p, the target parent's value is kept unchanged.
+This is only supported when `S`, `S_p`, and `T_p` are compatible adapter
+checkpoints with the same adapter metadata and exact tensor layout. The runner
+rejects grafts whose target is missing any delta-bearing key.
 
 ### State Dict Loading (Framework-Agnostic)
 
