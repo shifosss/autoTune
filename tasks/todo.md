@@ -24,3 +24,51 @@
 - `env UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/autotune/orchestrator.py tests/test_orchestrator.py`
 - `env UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_orchestrator.py tests/test_navigator.py tests/test_forgetting.py tests/test_manifold.py -q`
 - `env UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q`
+
+---
+
+## Problem 6: Checkpoint Compatibility Hardening
+
+- [x] Review current runner checkpoint arithmetic, runner tests, and workflow docs.
+- [x] Create task branch `fix_checkpoint_compatibility`.
+- [x] Add strict adapter compatibility validation in `src/autotune/runner.py`.
+- [x] Make `weighted_avg`, `compose`, and `graft` fail closed on metadata/key/shape/dtype mismatch.
+- [x] Expand `tests/test_runner.py` for valid adapter ops and hard failures.
+- [x] Narrow checkpoint arithmetic claims in `docs/workflow-reference.md` and `docs/workflow-flowchart.html`.
+- [x] Run focused and full verification.
+- [x] Document review results here after verification.
+
+## Notes
+
+- Current `weighted_avg` only warns on low key overlap and still proceeds.
+- Current `compose` assumes base-relative delta composition but does not validate adapter metadata or exact tensor compatibility.
+- Current `graft` validates overlap only between source and source parent; target compatibility is still permissive.
+- Docs still present checkpoint arithmetic too broadly for publication-safe claims.
+
+## Review
+
+- `src/autotune/runner.py` now uses a shared adapter compatibility validator for
+  all arithmetic checkpoint operations.
+- `weighted_avg`, `compose`, and `graft` now fail closed unless every operand:
+  has `adapter_config.json`, matches adapter metadata, and exposes identical
+  tensor keys, shapes, and dtypes.
+- Arithmetic outputs now persist `adapter_config.json` alongside the generated
+  `pytorch_model.bin`, so merged/grafted parents remain valid adapter
+  checkpoints for downstream training.
+- `tests/test_runner.py` now covers:
+  - successful adapter-compatible `weighted_avg`, `compose`, and `graft`
+  - missing `adapter_config.json`
+  - mismatched `base_model_name_or_path`
+  - mismatched `peft_type`
+  - key-set mismatch for `weighted_avg` and `compose`
+  - shape mismatch
+  - dtype mismatch
+  - graft target missing the required delta key
+- `docs/workflow-reference.md` and `docs/workflow-flowchart.html` now document
+  checkpoint arithmetic as adapter-only with strict compatibility
+  preconditions, and they no longer describe dropping or silently preserving
+  incompatible keys.
+- Verification:
+  - `env UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/autotune/runner.py tests/test_runner.py`
+  - `env UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_runner.py -q`
+  - `env UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q`

@@ -1478,6 +1478,14 @@ flowchart TD
 <section id="checkpoint-math">
   <h2>Checkpoint Operations <span class="badge">ALGORITHM</span></h2>
   <p class="subtitle">Mathematical definitions of the four checkpoint strategies: branch, weighted average, compose, and graft.</p>
+  <p>Only <strong>branch copy</strong> is general. The arithmetic operations
+  (<code>weighted_avg</code>, <code>compose</code>, <code>graft</code>) are
+  restricted to adapter-style checkpoints that share the same base model,
+  adapter metadata, and exact tensor layout. The runner requires
+  <code>adapter_config.json</code>, matching
+  <code>base_model_name_or_path</code>/<code>peft_type</code>/<code>task_type</code>/<code>target_modules</code>,
+  and identical tensor keys, shapes, and dtypes. Arbitrary dense-model
+  checkpoint arithmetic is unsupported.</p>
 
   <h3>Branch (Copy)</h3>
   <div class="math-block">
@@ -1491,7 +1499,9 @@ flowchart TD
     <div class="label">Element-wise Weighted Sum</div>
     <p>Given parents $P_1, P_2, \ldots, P_m$ with weights $w_1, w_2, \ldots, w_m$ where $\sum w_i = 1$:</p>
     $$\theta_{\text{merged}}[k] = \sum_{i=1}^{m} w_i \cdot \theta_{P_i}[k] \qquad \forall\, k \in \bigcap_{i} \text{keys}(\theta_{P_i})$$
-    <p>Only keys present in <strong>all</strong> parent state dicts are merged. Missing keys are dropped.</p>
+    <p>This is only valid when all parents expose the same adapter metadata and
+    the same tensor keys, shapes, and dtypes. The runner rejects partial-overlap
+    merges instead of dropping keys.</p>
   </div>
 
   <h3>Compose Merge (LoRA)</h3>
@@ -1500,7 +1510,10 @@ flowchart TD
     <p>Given base $P_0$ and additional parents $P_1, \ldots, P_{m-1}$:</p>
     $$\Delta = \sum_{i=1}^{m-1} \bigl(\theta_{P_i}[k] - \theta_{P_0}[k]\bigr)$$
     $$\theta_{\text{composed}}[k] = \theta_{P_0}[k] + \Delta$$
-    <p>Sums the deltas of all parents relative to a shared base, then applies the total delta. Useful for composing independent LoRA adaptations.</p>
+    <p>Sums the deltas of all parents relative to a shared base, then applies
+    the total delta. This is only supported for compatible adapter checkpoints
+    from the same base initialization; exact key, shape, and dtype matches are
+    required.</p>
   </div>
 
   <h3>Graft</h3>
@@ -1509,9 +1522,9 @@ flowchart TD
     <p>Given a source experiment $S$ with source parent $S_p$, and a target parent $T_p$:</p>
     $$\Delta_S[k] = \theta_S[k] - \theta_{S_p}[k] \qquad \text{(technique delta)}$$
     $$\theta_{\text{grafted}}[k] = \theta_{T_p}[k] + \Delta_S[k]$$
-    <p>For keys not in $S$ or $S_p$, the target parent's value is kept unchanged:</p>
-    $$\theta_{\text{grafted}}[k] = \theta_{T_p}[k] \qquad \text{if } k \notin \text{keys}(\theta_S) \cup \text{keys}(\theta_{S_p})$$
-    <p>This "grafts" the learned technique from one branch onto a different branch of the DAG.</p>
+    <p>This is only supported when $S$, $S_p$, and $T_p$ are compatible adapter
+    checkpoints with the same adapter metadata and exact tensor layout. The
+    runner rejects grafts whose target is missing any delta-bearing key.</p>
   </div>
 
   <h3>State Dict Loading (Framework-Agnostic)</h3>
