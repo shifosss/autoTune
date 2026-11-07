@@ -4,7 +4,7 @@ A command-line framework that lets a coding agent run finetuning experiments as 
 
 ![Scatter chart of a five-node Pareto front, task score against retention, point size showing cost. Synthetic example data.](docs/assets/pareto-front-synthetic.png)
 
-*The `autotune frontier` output from a throwaway project with hand-typed scores. The data is synthetic: no model was trained and the numbers say nothing about autoTune's quality.*
+*Plotted from the values `autotune frontier` prints for a throwaway project with hand-typed scores; the chart is not the command's own output. The data is synthetic: no model was trained and the numbers say nothing about autoTune's quality.*
 
 ## What it does
 
@@ -113,7 +113,7 @@ The agent drives the loop through the CLI: observe (`status`, `reconcile`), anal
 2. writes its checkpoint to `AUTOTUNE_CHECKPOINT_DIR`;
 3. writes `result.json` to its working directory, with `"checkpoint_saved": true` if the checkpoint should be kept (`orchestrator.py:489`).
 
-The orchestrator also sets `AUTOTUNE_GPU`, `AUTOTUNE_NODE_ID` and `AUTOTUNE_MOVE_TYPE`. It does not pass hyperparameters (`theta`) to the script; it archives `spec.json` only (`orchestrator.py:320`), so the agent applies `theta` by editing code or config. The full contract is in [`docs/workflow-reference.md`](docs/workflow-reference.md).
+The orchestrator also sets `CUDA_VISIBLE_DEVICES` (the assigned GPU), `AUTOTUNE_GPU` (always `0`), `AUTOTUNE_NODE_ID` and `AUTOTUNE_MOVE_TYPE`. When retention is enabled with a script, it sets `AUTOTUNE_RETENTION_SCRIPT`, plus `AUTOTUNE_RETENTION_PROBE` if a probe set is configured. It forwards the spec's `env` dict, except `CUDA_VISIBLE_DEVICES` and `AUTOTUNE_GPU` (`orchestrator.py:383-396`). It does not pass hyperparameters (`theta`) to the script; it archives `spec.json` only (`orchestrator.py:320`), so the agent applies `theta` by editing code or config. The full contract is in [`docs/workflow-reference.md`](docs/workflow-reference.md).
 
 ## Status and limits
 
@@ -123,7 +123,7 @@ The orchestrator also sets `AUTOTUNE_GPU`, `AUTOTUNE_NODE_ID` and `AUTOTUNE_MOVE
 - **Optuna is declared but unused.** It is listed in `pyproject.toml` and not imported anywhere in `src/` or `tests/`. `peft` is only a config field name in `runner.py`, never imported.
 - **Retention is opt-in** (`retention.enabled: false` in the config template). Forgetting-cliff detection is covered by unit tests but was not triggered in an end-to-end run.
 - **The dashboard needs internet.** `autotune viz start` serves a page that loads d3, three.js, 3d-force-graph and plotly from `cdn.jsdelivr.net`. The dashboard was not launched during verification; its 15 tests pass.
-- **CI does not pass today.** The GitHub Actions workflow targets Python 3.10 while the package requires 3.11 or later, and it installs only `flake8` and `pytest`, never the package.
+- **CI** installs the package with `.[dev]` on Python 3.12 and runs `pytest -q`. It does not lint.
 - **Tests and lint.** 155 tests pass. Line coverage is 72% overall, with 52% in `orchestrator.py` and 38% in `viz/server.py`. `ruff check src/ tests/` reports 26 errors and `ruff format --check` flags 3 files (ruff 0.17.4).
 - **Rough edges.** `autotune status` can print `Recommend: merge merge node_...`, and its `Proposed:` count never decreases.
 
