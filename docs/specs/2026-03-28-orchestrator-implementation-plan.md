@@ -4,7 +4,7 @@
 
 **Goal:** Implement the `ExperimentOrchestrator` that executes queued experiments on GPUs, manages checkpoints, and feeds results back into the manifold + forgetting systems.
 
-**Architecture:** Direct port of autoMIL's orchestrator (`/Users/chenzhang/Alex's Codebases/autoMIL/src/automil/orchestrator.py`) with three extensions: checkpoint preparation by move_type in `_launch()`, post-completion manifold + forgetting updates in `_handle_completion()`, and checkpoint pruning for Pareto rank >= 2. torch is optional — guarded at import time, only required for merge/graft moves.
+**Architecture:** Direct port of autoMIL's orchestrator (`autoMIL/src/automil/orchestrator.py`) with three extensions: checkpoint preparation by move_type in `_launch()`, post-completion manifold + forgetting updates in `_handle_completion()`, and checkpoint pruning for Pareto rank >= 2. torch is optional — guarded at import time, only required for merge/graft moves.
 
 **Tech Stack:** Python 3.11+, subprocess (process management), nvidia-smi (GPU detection), torch/safetensors (optional, checkpoint I/O), Click (CLI)
 
@@ -101,7 +101,7 @@ class TestCheckpointIO:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_runner.py::TestCheckpointIO -v`
+Run: `uv run pytest tests/test_runner.py::TestCheckpointIO -v`
 Expected: FAIL (no `_load_state_dict` method)
 
 - [ ] **Step 3: Implement _load_state_dict and _save_state_dict**
@@ -173,12 +173,12 @@ Add to `src/autotune/runner.py` at end of `ExperimentRunner` class:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_runner.py::TestCheckpointIO -v`
+Run: `uv run pytest tests/test_runner.py::TestCheckpointIO -v`
 Expected: PASS
 
 - [ ] **Step 5: Run all runner tests for regression**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_runner.py -v`
+Run: `uv run pytest tests/test_runner.py -v`
 Expected: All pass
 
 - [ ] **Step 6: Commit**
@@ -307,7 +307,7 @@ class TestMergeCheckpoints:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_runner.py::TestMergeCheckpoints -v`
+Run: `uv run pytest tests/test_runner.py::TestMergeCheckpoints -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement merge_checkpoints**
@@ -375,7 +375,7 @@ Add to `src/autotune/runner.py` in `ExperimentRunner`:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_runner.py::TestMergeCheckpoints -v`
+Run: `uv run pytest tests/test_runner.py::TestMergeCheckpoints -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -450,7 +450,7 @@ class TestGraftCheckpoint:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_runner.py::TestGraftCheckpoint -v`
+Run: `uv run pytest tests/test_runner.py::TestGraftCheckpoint -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement graft_checkpoint**
@@ -492,7 +492,7 @@ Add to `src/autotune/runner.py`:
 
 - [ ] **Step 4: Run tests and verify pass**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_runner.py -v`
+Run: `uv run pytest tests/test_runner.py -v`
 Expected: All pass
 
 - [ ] **Step 5: Commit**
@@ -559,7 +559,7 @@ class TestQueryGPUs:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_orchestrator.py::TestGPUInfo tests/test_orchestrator.py::TestQueryGPUs -v`
+Run: `uv run pytest tests/test_orchestrator.py::TestGPUInfo tests/test_orchestrator.py::TestQueryGPUs -v`
 Expected: FAIL (no module)
 
 - [ ] **Step 3: Create orchestrator.py with scaffold**
@@ -657,7 +657,7 @@ def query_gpus() -> list[GPUInfo]:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_orchestrator.py -v`
+Run: `uv run pytest tests/test_orchestrator.py -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -749,7 +749,7 @@ class TestOrchestratorInit:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_orchestrator.py::TestOrchestratorInit -v`
+Run: `uv run pytest tests/test_orchestrator.py::TestOrchestratorInit -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement ExperimentOrchestrator.__init__**
@@ -841,7 +841,7 @@ class ExperimentOrchestrator:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_orchestrator.py -v`
+Run: `uv run pytest tests/test_orchestrator.py -v`
 Expected: All pass
 
 - [ ] **Step 5: Commit**
@@ -928,7 +928,7 @@ class TestScheduling:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_orchestrator.py::TestStatePersistence tests/test_orchestrator.py::TestOrphanRecovery tests/test_orchestrator.py::TestScheduling -v`
+Run: `uv run pytest tests/test_orchestrator.py::TestStatePersistence tests/test_orchestrator.py::TestOrphanRecovery tests/test_orchestrator.py::TestScheduling -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement _load_state, _save_state, _recover_orphans, _get_pending, _find_best_gpu, _pre_launch_check**
@@ -1049,7 +1049,7 @@ Add these methods to `ExperimentOrchestrator` in `src/autotune/orchestrator.py`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_orchestrator.py -v`
+Run: `uv run pytest tests/test_orchestrator.py -v`
 Expected: All pass
 
 - [ ] **Step 5: Commit**
@@ -1087,7 +1087,7 @@ class TestLifecycle:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_orchestrator.py::TestLifecycle -v`
+Run: `uv run pytest tests/test_orchestrator.py::TestLifecycle -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement _launch, _check_running, _handle_completion, _handle_timeout, _mark_crashed, _append_results_tsv**
@@ -1427,7 +1427,7 @@ Add to `ExperimentOrchestrator`. This is the core lifecycle — port from autoMI
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_orchestrator.py -v`
+Run: `uv run pytest tests/test_orchestrator.py -v`
 Expected: All pass
 
 - [ ] **Step 5: Commit**
@@ -1494,7 +1494,7 @@ class TestCmdMethods:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_orchestrator.py::TestCheckpointPruning tests/test_orchestrator.py::TestCmdMethods -v`
+Run: `uv run pytest tests/test_orchestrator.py::TestCheckpointPruning tests/test_orchestrator.py::TestCmdMethods -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement tick, run, cmd_start, cmd_status, cmd_stop**
@@ -1612,7 +1612,7 @@ Add to `ExperimentOrchestrator`:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_orchestrator.py -v`
+Run: `uv run pytest tests/test_orchestrator.py -v`
 Expected: All pass
 
 - [ ] **Step 5: Commit**
@@ -1682,7 +1682,7 @@ class TestCheckpoints:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_cli.py::TestOrchestratorCLI tests/test_cli.py::TestCheckpoints -v`
+Run: `uv run pytest tests/test_cli.py::TestOrchestratorCLI tests/test_cli.py::TestCheckpoints -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement CLI commands**
@@ -1779,12 +1779,12 @@ def checkpoints(prune: bool) -> None:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_cli.py::TestOrchestratorCLI tests/test_cli.py::TestCheckpoints -v`
+Run: `uv run pytest tests/test_cli.py::TestOrchestratorCLI tests/test_cli.py::TestCheckpoints -v`
 Expected: PASS
 
 - [ ] **Step 5: Run all CLI tests for regression**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_cli.py -v`
+Run: `uv run pytest tests/test_cli.py -v`
 Expected: All pass
 
 - [ ] **Step 6: Commit**
@@ -1802,22 +1802,22 @@ git commit -m "feat(cli): add orchestrator start|stop|status and checkpoints --p
 
 - [ ] **Step 1: Run full test suite**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest -v`
+Run: `uv run pytest -v`
 Expected: All pass (should be ~110+ tests)
 
 - [ ] **Step 2: Run linter**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run ruff check src/ tests/`
+Run: `uv run ruff check src/ tests/`
 Expected: All checks passed
 
 - [ ] **Step 3: Run formatter**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run ruff format src/ tests/`
+Run: `uv run ruff format src/ tests/`
 Fix any formatting issues, then verify: `uv run ruff format --check src/ tests/`
 
 - [ ] **Step 4: Verify CLI shows all commands**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run autotune --help`
+Run: `uv run autotune --help`
 Expected: All 13 commands listed: check, checkpoints, explain, frontier, init, orchestrator, propose, rank, reconcile, status, submit, suggest
 
 - [ ] **Step 5: Verify file sizes under 800 lines**
@@ -1834,7 +1834,7 @@ git commit -m "chore: fix lint warnings and apply ruff formatting"
 
 - [ ] **Step 7: Run existing integration tests to verify no regressions**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_integration.py -v`
+Run: `uv run pytest tests/test_integration.py -v`
 Expected: Both E2E tests pass
 
 ---

@@ -119,7 +119,7 @@ testpaths = ["tests"]
 
 - [ ] **Step 4: Install in dev mode and verify**
 
-Run: `cd /Users/chenzhang/Alex\'s\ Codebases/autoTune && pip install -e ".[dev]"`
+Run: `pip install -e ".[dev]"`
 Expected: successful install, `autotune` command available (will fail until cli.py exists, that's fine)
 
 - [ ] **Step 5: Commit**
@@ -260,7 +260,7 @@ class TestMoveProposal:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/chenzhang/Alex\'s\ Codebases/autoTune && uv run pytest tests/test_types.py -v`
+Run: `uv run pytest tests/test_types.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'autotune.types'`
 
 - [ ] **Step 3: Implement types.py**

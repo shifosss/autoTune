@@ -14,9 +14,9 @@
 
 ## Review
 
-- Tightened forgetting rebuild semantics in [orchestrator.py](/Users/chenzhang/Alex's%20Codebases/autoTune/src/autotune/orchestrator.py) so danger zones are rebuilt from executed DAG history whenever a completion lands in a configured parameter space, even if that specific completion omits `retention_score`.
+- Tightened forgetting rebuild semantics in [orchestrator.py](src/autotune/orchestrator.py) so danger zones are rebuilt from executed DAG history whenever a completion lands in a configured parameter space, even if that specific completion omits `retention_score`.
 - Preserved a single active coordinate system: executed-node `manifold_coords` are synced from the current manifold state, and danger zones are regenerated against those coordinates instead of relying on stale incremental appends.
-- Extended [test_orchestrator.py](/Users/chenzhang/Alex's%20Codebases/autoTune/tests/test_orchestrator.py) with coverage for:
+- Extended [test_orchestrator.py](tests/test_orchestrator.py) with coverage for:
 - early-stage cliffs getting grounded non-empty danger-zone centers
 - early-stage danger zones filtering later merge suggestions
 - manifold retraining rebuilding an earlier cliff even when the 10th completion lacks a retention metric

@@ -44,7 +44,7 @@ tests/test_viz.py            # server unit tests (~120 lines)
 - [ ] **Step 1: Create the viz package**
 
 ```bash
-mkdir -p "/Users/chenzhang/Alex's Codebases/autoTune/src/autotune/viz/static"
+mkdir -p src/autotune/viz/static
 ```
 
 Create `src/autotune/viz/__init__.py`:
@@ -149,7 +149,7 @@ class TestEventConstruction:
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_viz.py -v`
+Run: `uv run pytest tests/test_viz.py -v`
 Expected: FAIL (no module)
 
 - [ ] **Step 4: Implement server.py**
@@ -469,12 +469,12 @@ def cmd_stop(project_root: Path | None = None) -> None:
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_viz.py -v`
+Run: `uv run pytest tests/test_viz.py -v`
 Expected: PASS
 
 - [ ] **Step 6: Run full test suite for regression**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest -v --tb=short`
+Run: `uv run pytest -v --tb=short`
 Expected: All pass (124+ existing + new viz tests)
 
 - [ ] **Step 7: Commit**
@@ -509,7 +509,7 @@ class TestVizCLI:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_cli.py::TestVizCLI -v`
+Run: `uv run pytest tests/test_cli.py::TestVizCLI -v`
 Expected: FAIL (no viz command)
 
 - [ ] **Step 3: Add viz group to cli.py**
@@ -558,12 +558,12 @@ def viz_status() -> None:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest tests/test_cli.py::TestVizCLI -v`
+Run: `uv run pytest tests/test_cli.py::TestVizCLI -v`
 Expected: PASS
 
 - [ ] **Step 5: Verify CLI shows viz group**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run autotune --help`
+Run: `uv run autotune --help`
 Expected: `viz` appears in command list
 
 - [ ] **Step 6: Commit**
@@ -601,11 +601,11 @@ Create `src/autotune/viz/static/style.css` with the full dark glassmorphism them
 
 - [ ] **Step 3: Verify the shell loads**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run python -c "from aiohttp import web; print('aiohttp ok')"` to verify dep.
+Run: `uv run python -c "from aiohttp import web; print('aiohttp ok')"` to verify dep.
 
 Then start server briefly to confirm HTML serves:
 ```bash
-cd "/Users/chenzhang/Alex's Codebases/autoTune" && timeout 3 uv run python -c "
+timeout 3 uv run python -c "
 from autotune.viz.server import create_app
 from aiohttp import web
 web.run_app(create_app(), port=8421, print=lambda *a: print('Server started'))
@@ -799,22 +799,22 @@ git commit -m "feat(viz): add DAG view tab with 2D layout and 3D ForceGraph togg
 
 - [ ] **Step 1: Run full test suite**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run pytest -v`
+Run: `uv run pytest -v`
 Expected: All pass
 
 - [ ] **Step 2: Run linter**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run ruff check src/ tests/`
+Run: `uv run ruff check src/ tests/`
 Expected: All checks passed
 
 - [ ] **Step 3: Run formatter**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run ruff format src/ tests/ && uv run ruff format --check src/ tests/`
+Run: `uv run ruff format src/ tests/ && uv run ruff format --check src/ tests/`
 Expected: All formatted
 
 - [ ] **Step 4: Verify CLI shows all commands**
 
-Run: `cd "/Users/chenzhang/Alex's Codebases/autoTune" && uv run autotune --help`
+Run: `uv run autotune --help`
 Expected: 13 commands including `viz` group
 
 - [ ] **Step 5: Verify file sizes**

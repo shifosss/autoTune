@@ -15,7 +15,7 @@
 ## File Structure
 
 ```
-/Users/chenzhang/Alex's Codebases/extraction-finetune/
+extraction-finetune/
 ├── train.py                    # Main training script (autoTune contract)
 ├── evaluate.py                 # Evaluation logic (field-level metrics)
 ├── generate_data.py            # Synthetic data generation script
@@ -51,14 +51,14 @@ After `autotune init`, the overlay is added:
 ### Task 1: Create Project Repository
 
 **Files:**
-- Create: `/Users/chenzhang/Alex's Codebases/extraction-finetune/.gitignore`
-- Create: `/Users/chenzhang/Alex's Codebases/extraction-finetune/requirements.txt`
+- Create: `extraction-finetune/.gitignore`
+- Create: `extraction-finetune/requirements.txt`
 
 - [ ] **Step 1: Create project directory and initialize git**
 
 ```bash
-mkdir -p "/Users/chenzhang/Alex's Codebases/extraction-finetune/data"
-cd "/Users/chenzhang/Alex's Codebases/extraction-finetune"
+mkdir -p extraction-finetune/data
+cd extraction-finetune
 git init
 ```
 
@@ -89,7 +89,7 @@ pydantic>=2.0
 - [ ] **Step 4: Install dependencies**
 
 ```bash
-cd "/Users/chenzhang/Alex's Codebases/extraction-finetune"
+cd extraction-finetune
 pip install -r requirements.txt
 ```
 
@@ -225,7 +225,7 @@ if __name__ == "__main__":
 - [ ] **Step 2: Generate schema_template.json**
 
 ```bash
-cd "/Users/chenzhang/Alex's Codebases/extraction-finetune"
+cd extraction-finetune
 python schema.py
 ```
 
@@ -755,7 +755,7 @@ if __name__ == "__main__":
 - [ ] **Step 2: Generate training data**
 
 ```bash
-cd "/Users/chenzhang/Alex's Codebases/extraction-finetune"
+cd extraction-finetune
 python generate_data.py
 ```
 
@@ -1338,7 +1338,7 @@ git commit -m "feat: add training script with autoTune contract compliance"
 ### Task 7: Wire Theta Passing from Orchestrator to Training Script
 
 **Files:**
-- Modify: `/Users/chenzhang/Alex's Codebases/autoTune/src/autotune/orchestrator.py` (add spec.json to worktree)
+- Modify: `src/autotune/orchestrator.py` (add spec.json to worktree)
 
 The orchestrator saves `spec.json` to the archive directory but does not copy it to the worktree where `train.py` runs. Add a single line to copy the spec into the worktree so `train.py` can read theta values.
 
@@ -1356,7 +1356,7 @@ This goes right after the worktree creation try/except block, before the checkpo
 - [ ] **Step 2: Run autoTune tests to verify no regression**
 
 ```bash
-cd "/Users/chenzhang/Alex's Codebases/autoTune"
+cd autoTune
 uv run pytest tests/test_orchestrator.py -v
 ```
 
@@ -1365,7 +1365,7 @@ Expected: All tests pass.
 - [ ] **Step 3: Commit (in autoTune repo)**
 
 ```bash
-cd "/Users/chenzhang/Alex's Codebases/autoTune"
+cd autoTune
 git add src/autotune/orchestrator.py
 git commit -m "feat: copy spec.json to worktree for training script theta access"
 ```
@@ -1380,7 +1380,7 @@ git commit -m "feat: copy spec.json to worktree for training script theta access
 - [ ] **Step 1: Initialize autoTune overlay**
 
 ```bash
-cd "/Users/chenzhang/Alex's Codebases/extraction-finetune"
+cd extraction-finetune
 autotune init --task instruction_tuning --base-model "mlx-community/Qwen2.5-7B-Instruct-4bit"
 ```
 
@@ -1470,7 +1470,7 @@ git commit -m "feat: configure autoTune overlay for extraction finetuning"
 - [ ] **Step 1: Submit seed node with default theta**
 
 ```bash
-cd "/Users/chenzhang/Alex's Codebases/extraction-finetune"
+cd extraction-finetune
 autotune submit \
   --desc "Seed: Qwen 2.5 7B 4-bit, LoRA r=16 a=32, lr=2e-4, 200 iters" \
   --theta '{"lr": 2e-4, "rank": 16, "alpha": 32, "dropout": 0.05, "warmup_ratio": 0.06}' \
@@ -1496,7 +1496,7 @@ Expected: Shows 1 proposed node, 0 executed, queue depth 1.
 - [ ] **Step 1: Start the orchestrator**
 
 ```bash
-cd "/Users/chenzhang/Alex's Codebases/extraction-finetune"
+cd extraction-finetune
 autotune orchestrator start
 ```
 
